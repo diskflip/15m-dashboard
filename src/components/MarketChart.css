@@ -1,0 +1,185 @@
+.chart {
+  padding: 4px 0 0;
+}
+
+.chart-plot {
+  position: relative;
+  height: 225px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+}
+
+.chart-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.chart-edge-line {
+  stroke: rgba(255, 255, 255, 0.07);
+  stroke-width: 1;
+}
+
+.chart-mid-line {
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.chart-boundary-line {
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+/* The actual current-price point on the line — kept separate from the
+   label so the label can float just to the right of it instead of
+   covering it. Fixed pixel size (not viewBox units) so it renders as a
+   real circle regardless of the chart's non-uniform x/y scaling. */
+.chart-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  /* Glides to each new price instead of snapping — duration sits just
+     under useMarket.ts's 200ms commit interval so it settles before the
+     next update lands rather than fighting a half-finished transition. */
+  transition: top 0.18s ease-out, left 0.18s ease-out;
+}
+
+.chart-current-label {
+  position: absolute;
+  transform: translate(7px, -50%);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: rgba(16, 19, 23, 0.85);
+  padding: 1px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: top 0.18s ease-out, left 0.18s ease-out;
+}
+
+.chart-hover-line {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.chart-hover-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px rgba(16, 19, 23, 0.85);
+  pointer-events: none;
+}
+
+.chart-hover-tooltip {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  transform: translate(-50%, -100%) translateY(-10px);
+  background: rgba(16, 19, 23, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.chart-hover-tooltip.align-left {
+  transform: translate(0, -100%) translateY(-10px);
+}
+
+.chart-hover-tooltip.align-right {
+  transform: translate(-100%, -100%) translateY(-10px);
+}
+
+.chart-hover-time {
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 2px;
+  margin-bottom: 1px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  white-space: nowrap;
+}
+
+.chart-hover-yes {
+  color: #3ecf7e;
+}
+
+.chart-hover-no {
+  color: #e05a5a;
+}
+
+.chart-axis {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.chart-unrealized {
+  margin-right: auto;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.chart-unrealized.positive {
+  color: #2fd996;
+  background: rgba(47, 217, 150, 0.14);
+}
+
+.chart-unrealized.negative {
+  color: #f0506e;
+  background: rgba(240, 80, 110, 0.14);
+}
+
+.chart-window-toggle {
+  display: flex;
+  gap: 2px;
+}
+
+.chart-window-btn {
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.35);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 5px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.chart-window-btn:hover {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.chart-window-btn.active {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.1);
+}

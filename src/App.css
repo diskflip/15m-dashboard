@@ -1,0 +1,82 @@
+.app {
+  min-height: 100%;
+  background: #0a0c0f;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 0;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.app-countdown {
+  font-family: "SF Mono", ui-monospace, "Menlo", "Consolas", monospace;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.85);
+  background: #101317;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 4px 9px;
+  margin-right: auto;
+}
+
+.pnl-value {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.pnl-value.positive {
+  color: #2fd996;
+}
+
+.pnl-value.negative {
+  color: #f0506e;
+}
+
+.wallet-balance {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.85);
+  background: #101317;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 4px 9px;
+}
+
+.market-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 10px 16px 24px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+/* Desktop only: cards fill the available width in rows instead of one
+   long single-column stack capped at phone width. A fixed column width
+   (not a fraction like 1fr) means every card is the same size regardless
+   of how many end up in the last row. auto-fill adds more columns as the
+   window gets wider (2 on a laptop, 3+ on an ultrawide). Mobile-width
+   viewports keep the single column above. */
+@media (min-width: 900px) {
+  .app-header {
+    max-width: 1800px;
+  }
+
+  .market-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 460px);
+    justify-content: start;
+    align-items: start;
+    max-width: 1800px;
+  }
+}

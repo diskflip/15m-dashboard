@@ -1,0 +1,50 @@
+.activity-log {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+  max-width: calc(100vw - 24px);
+}
+
+.activity-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 19, 23, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+  animation: activity-in 0.15s ease-out;
+}
+
+@keyframes activity-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.activity-symbol {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.activity-entry.entry .activity-detail {
+  color: #2fd996;
+}
+
+.activity-entry.exit .activity-detail {
+  color: #f0506e;
+}

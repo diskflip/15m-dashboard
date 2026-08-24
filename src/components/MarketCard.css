@@ -1,0 +1,189 @@
+.market-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: #101317;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 13px;
+  padding: 15px 12px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.market-bar.disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.market-bar.state-resting {
+  border-color: rgba(77, 163, 255, 0.35);
+  box-shadow: 0 0 10px rgba(77, 163, 255, 0.18);
+}
+
+.market-bar.state-holding {
+  border-color: rgba(240, 80, 110, 0.35);
+  box-shadow: 0 0 10px rgba(240, 80, 110, 0.18);
+}
+
+@keyframes win-glow {
+  0% {
+    box-shadow: 0 0 0 rgba(255, 200, 40, 0);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  20% {
+    box-shadow: 0 0 14px 2px rgba(255, 200, 40, 0.3);
+    border-color: rgba(255, 200, 40, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 rgba(255, 200, 40, 0);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+}
+
+/* Runs once per win, then the element falls back to whatever its static
+   state (resting/holding/neutral) rules say — animated properties take
+   priority only while the animation is actually running. */
+.market-bar.win-flash {
+  animation: win-glow 2.2s ease-out;
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.market-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  flex: 0 0 auto;
+  object-fit: cover;
+}
+
+.market-symbol {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  flex: 0 0 auto;
+  width: 56px;
+}
+
+.bar-yesno {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.bar-yesno-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-yesno-stat.yes {
+  color: #2fd996;
+}
+
+.bar-yesno-stat.no {
+  color: #f0506e;
+}
+
+.bar-yesno-label {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+}
+
+.bar-pnl {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.6);
+  flex: 0 0 auto;
+}
+
+.bar-pnl.positive {
+  color: #2fd996;
+}
+
+.bar-pnl.negative {
+  color: #f0506e;
+}
+
+.bar-row-right {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.order-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.order-badge {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.order-badge.resting {
+  color: #4da3ff;
+  background: rgba(77, 163, 255, 0.14);
+}
+
+.order-badge.holding {
+  color: #2fd996;
+  background: rgba(47, 217, 150, 0.14);
+}
+
+.bar-paused {
+  flex: 1 1 auto;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.toggle-switch {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 12px;
+  border-radius: 6px;
+  border: none;
+  padding: 1.5px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: background 0.15s ease;
+}
+
+.toggle-switch.on {
+  background: rgba(79, 138, 116, 0.4);
+}
+
+.toggle-knob {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #8a8f96;
+  display: block;
+  transition: transform 0.15s ease;
+}
+
+.toggle-switch.on .toggle-knob {
+  background: #a9c4b9;
+  transform: translateX(8px);
+}
