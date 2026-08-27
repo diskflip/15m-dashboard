@@ -32,6 +32,31 @@ export type ServerMessage =
   | { type: "wallet"; balanceCents: number }
   | { type: "orderStatus"; symbol: string; resting: boolean; holding: boolean }
   | { type: "pnl"; symbol: string; dollars: number }
+  // Paper-trading simulation: what a fixed $5-per-trade 6c-in/95c-out
+  // strategy would have made against this market's real live price feed,
+  // session-only — see server/simTracker.ts. Not a real trade, no bots or
+  // money involved; a live read on whether current conditions look
+  // favorable for actually running your bots right now.
+  | {
+      type: "sim";
+      symbol: string;
+      totalDollars: number;
+      // Rolling sum of just the last hour's simulated trades, alongside the
+      // session-long totalDollars — lets the card show both at once.
+      lastHourDollars: number;
+      wins: number;
+      losses: number;
+      lastTrade: {
+        side: "yes" | "no";
+        result: "win" | "loss";
+        entryCents: number;
+        profitDollars: number;
+        time: number;
+      } | null;
+    }
+  // Live BTC/USD spot price in dollars, independent of any Kalshi contract
+  // — see server/spotPrice.ts. Only ever sent for symbol "BTC".
+  | { type: "spot"; symbol: string; priceDollars: number }
   // Live unrealized position in the market's currently active ticker —
   // positionFp is signed (positive = net YES contracts, negative = net NO),
   // costDollars is total cost paid for it. Both 0 whenever flat.

@@ -9,6 +9,10 @@ function formatPrice(value: number | null): string {
   return value === null ? "—" : `${Math.round(value)}`;
 }
 
+function formatSpotPrice(dollars: number | null): string {
+  return dollars === null ? "—" : `$${Math.round(dollars).toLocaleString("en-US")}`;
+}
+
 // GOLD and SILVER's Kalshi CDN icon path didn't match what's actually
 // rendered on their market page (returned a generic ETF-ticker card
 // instead) — those two were captured directly from the page as PNGs; the
@@ -37,6 +41,8 @@ type MarketCardProps = {
   // Reported up so the app-level total can sum across every market without
   // each one having to stay mounted at the App level.
   onPnlChange: (symbol: string, dollars: number) => void;
+  // Same idea, for the paper-trading simulation total — see server/simTracker.ts.
+  onSimPnlChange: (symbol: string, dollars: number, lastHourDollars: number) => void;
   // Every 15m market shares the same close time, so the countdown is shown
   // once at the App level instead of once per bar — this just feeds it up.
   onCloseTimeChange: (time: number | null) => void;
@@ -57,10 +63,12 @@ export const MarketCard = memo(function MarketCard({
   enabled,
   onToggle,
   onPnlChange,
+  onSimPnlChange,
   onCloseTimeChange,
   onStatusChange,
 }: MarketCardProps) {
   const [winning, setWinning] = useState(false);
+  const [simWinning, setSimWinning] = useState(false);
   // Collapsed by default on mobile widths so more markets fit on screen at
   // once without scrolling — tap a bar to expand its chart. Desktop keeps
   // the previous always-expanded default. 900px matches App.css's own
@@ -74,15 +82,25 @@ export const MarketCard = memo(function MarketCard({
     resting,
     holding,
     pnlDollars,
+    simDollars,
+    simLastHourDollars,
+    simWins,
+    simLosses,
+    simFlash,
     positionFp,
     costDollars,
     winFlash,
     buyInFlash,
+    spotPriceDollars,
   } = useMarket(symbol, enabled);
 
   useEffect(() => {
     onPnlChange(symbol, pnlDollars);
   }, [symbol, pnlDollars, onPnlChange]);
+
+  useEffect(() => {
+    onSimPnlChange(symbol, simDollars, simLastHourDollars);
+  }, [symbol, simDollars, simLastHourDollars, onSimPnlChange]);
 
   useEffect(() => {
     onStatusChange(symbol, resting, holding);
@@ -98,6 +116,17 @@ export const MarketCard = memo(function MarketCard({
     const t = setTimeout(() => setWinning(false), 2200);
     return () => clearTimeout(t);
   }, [winFlash]);
+
+  // Brief highlight on the paper stat only when a simulated trade *wins* —
+  // losses happen far more often than wins for this strategy (see
+  // FINDINGS.md) and would make the badge flicker constantly if it reacted
+  // to those too, so it stays quiet except for the outcome worth noticing.
+  useEffect(() => {
+    if (simFlash === null || simFlash.result !== "win") return;
+    setSimWinning(true);
+    const t = setTimeout(() => setSimWinning(false), 1400);
+    return () => clearTimeout(t);
+  }, [simFlash]);
 
   // A real entry fill means this market now matters — expand it (e.g. from
   // the mobile collapsed-by-default state) so its chart is immediately
@@ -187,6 +216,28 @@ export const MarketCard = memo(function MarketCard({
           market={market}
           unrealizedDollars={holding ? unrealizedDollars : null}
         />
+      )}
+
+      {enabled && (
+        <div className="bar-footer">
+          <span className="bar-footer-spot">
+            {symbol === "BTC" ? formatSpotPrice(spotPriceDollars) : ""}
+          </span>
+          <span className="bar-pnl-sim-group">
+            <span
+              className={`bar-pnl-sim ${pnlClass(simDollars)} ${simWinning ? "flash" : ""}`}
+              title={`Paper trade sim: ${simWins}W / ${simLosses}L — $5 in at 6c, out at 95c`}
+            >
+              {formatPnl(simDollars)}
+            </span>
+            <span
+              className={`bar-pnl-sim-hour ${pnlClass(simLastHourDollars)}`}
+              title="Paper trade sim, last hour only"
+            >
+              {formatPnl(simLastHourDollars)}
+            </span>
+          </span>
+        </div>
       )}
     </div>
   );

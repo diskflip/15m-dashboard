@@ -9,6 +9,10 @@ export class PnlTracker {
     this.sessionDollars += amount;
   }
 
+  reset() {
+    this.sessionDollars = 0;
+  }
+
   total(): number {
     return this.sessionDollars;
   }

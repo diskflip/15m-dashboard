@@ -1,44 +1,125 @@
 .app {
   min-height: 100%;
+  display: flex;
+  flex-direction: column;
   background: #0a0c0f;
 }
 
+/* Three-column grid (spacer / countdown / right cluster) instead of an
+   absolutely-positioned countdown over a flex row — that hack only stayed
+   centered as long as the right cluster's width happened not to reach the
+   middle; once it grew (adding the 1HR figure) the two started overlapping.
+   A real grid with symmetric 1fr flanks keeps the countdown centered and
+   guarantees it never overlaps either side, regardless of their width. */
 .app-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px 0;
+  padding: 4px 16px 0;
+  width: 100%;
   max-width: 480px;
   margin: 0 auto;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: end;
+}
+
 .app-countdown {
-  font-family: "SF Mono", ui-monospace, "Menlo", "Consolas", monospace;
-  font-size: 14px;
+  justify-self: center;
+  font-size: 17px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.95);
   background: #101317;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  padding: 4px 9px;
-  margin-right: auto;
+  padding: 3px 9px;
+  line-height: 1;
+  transition: color 0.2s ease;
 }
 
-.pnl-value {
+/* First 10 minutes of the window: neutral white (default color above). */
+
+/* Last 5 minutes. */
+.app-countdown.warn {
+  color: #ffd23f;
+}
+
+/* Last 2 minutes. */
+.app-countdown.critical {
+  color: #f0506e;
+}
+
+/* Paper-trading simulation total — deliberately quieter than the real P&L
+   next to it (smaller, dimmer) so the two are never confused, but still
+   readable at a glance since it's the whole point of the feature. */
+.sim-pnl-value {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.4);
 }
 
-.pnl-value.positive {
-  color: #2fd996;
+.sim-pnl-label {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
 }
 
-.pnl-value.negative {
-  color: #f0506e;
+.sim-pnl-value.positive {
+  color: #7fd4c9;
+}
+
+.sim-pnl-value.negative {
+  color: #c97f8f;
+}
+
+/* Rolling last-hour slice sitting right next to the session SIM total —
+   quieter (smaller, dimmer) so the running total stays the primary read. */
+.sim-pnl-value.sim-pnl-hour {
+  margin-left: 0;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* Small, quiet control next to the real P&L figure — clears today's
+   session total on click (see server pnlReset.ts). Deliberately plain
+   (no confirmation dialog) since it only moves a display baseline forward,
+   nothing destructive to the underlying settlement history. */
+.pnl-reset-btn {
+  font-size: 11px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.35);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.pnl-reset-btn:hover {
+  color: rgba(255, 255, 255, 0.75);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.pnl-reset-btn:focus-visible {
+  outline: 2px solid rgba(77, 163, 255, 0.6);
+  outline-offset: 1px;
 }
 
 .wallet-balance {
@@ -56,17 +137,16 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 10px 16px 24px;
+  padding: 4px 16px 24px;
+  width: 100%;
   max-width: 480px;
   margin: 0 auto;
 }
 
-/* Desktop only: cards fill the available width in rows instead of one
-   long single-column stack capped at phone width. A fixed column width
-   (not a fraction like 1fr) means every card is the same size regardless
-   of how many end up in the last row. auto-fill adds more columns as the
-   window gets wider (2 on a laptop, 3+ on an ultrawide). Mobile-width
-   viewports keep the single column above. */
+/* Desktop only: all 6 markets fill one row across the available width
+   instead of a fixed-460px auto-fill grid wrapping into 2 rows of 3 — each
+   column is an even fraction of whatever width the viewport has. Mobile-
+   width viewports keep the single column above. */
 @media (min-width: 900px) {
   .app-header {
     max-width: 1800px;
@@ -74,9 +154,14 @@
 
   .market-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, 460px);
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     justify-content: start;
-    align-items: start;
+    align-items: stretch;
     max-width: 1800px;
+    /* Stretches the single row down to fill whatever's left of the
+       viewport below the header instead of hugging the top with empty
+       space underneath — .app is the flex column that makes this work. */
+    flex: 1;
+    min-height: 0;
   }
 }

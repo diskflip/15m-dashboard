@@ -14,6 +14,8 @@ const SYMBOL_COLOR: Record<string, string> = {
   SILVER: "#ffffff",
   GOLD: "#e3a83d",
   OIL: "#d68a3e",
+  NEAR: "#01eb9a",
+  HYPE: "#00e5c4",
 };
 const DEFAULT_COLOR = "#f4f6f8";
 
@@ -27,7 +29,7 @@ function formatCountdown(secondsLeft: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-const WINDOW_OPTIONS = [5, 30] as const;
+const WINDOW_OPTIONS = [3, 30] as const;
 type WindowMinutes = (typeof WINDOW_OPTIONS)[number];
 
 // Auto-zoom floor scales with the selected window instead of being one
@@ -41,10 +43,19 @@ const ABSOLUTE_MIN_WINDOW_SECONDS = 60;
 
 // Map a 0-100 value (or a 0..spanSeconds time offset) into a slightly
 // inset drawable range instead of the full 0-100, so a point sitting right
-// at the true edge still has room for its stroke width and the price
-// label — otherwise either gets clipped by the plot's rounded corners.
-const MARGIN = 8;
+// at the true edge still has room for its stroke width — otherwise it gets
+// clipped by the plot's rounded corners.
+const MARGIN = 3;
 const inset = (frac01: number) => MARGIN + frac01 * (100 - 2 * MARGIN);
+
+// Time gets barely any margin at the top — the line should read almost all
+// the way up. The bottom keeps just enough room to fit the price label
+// (which floats below the live dot) inside the plot's own clipped bounds,
+// the same way the label always stayed inside before this was rotated.
+const MARGIN_TIME_TOP = 3;
+const MARGIN_TIME_BOTTOM = 7;
+const insetTime = (frac01: number) =>
+  MARGIN_TIME_TOP + frac01 * (100 - MARGIN_TIME_TOP - MARGIN_TIME_BOTTOM);
 
 // points is sorted by time ascending (history is appended in order) — binary
 // search for the closest one to a hovered time instead of a linear scan,
@@ -81,7 +92,7 @@ type MarketChartProps = {
 // stretching the full window, so a freshly (re)loaded card isn't mostly
 // empty space with all the real line crammed into a sliver.
 export function MarketChart({ symbol, history, currentYes, market, unrealizedDollars }: MarketChartProps) {
-  const [windowMinutes, setWindowMinutes] = useState<WindowMinutes>(5);
+  const [windowMinutes, setWindowMinutes] = useState<WindowMinutes>(3);
   const [hoverPoint, setHoverPoint] = useState<HistoryPoint | null>(null);
   const plotRef = useRef<HTMLDivElement | null>(null);
   const color = SYMBOL_COLOR[symbol] ?? DEFAULT_COLOR;
@@ -105,8 +116,11 @@ export function MarketChart({ symbol, history, currentYes, market, unrealizedDol
   const domainStart = Math.min(effectiveNow - minWindowSeconds, Math.max(fixedFrom, earliest));
   const domainSpan = Math.max(effectiveNow - domainStart, 1);
 
-  const toX = (time: number) => inset((time - domainStart) / domainSpan);
-  const toY = (yes: number) => inset(1 - Math.min(100, Math.max(0, yes)) / 100);
+  // Rotated 90°: price now runs horizontally (YES on the left at 100, NO on
+  // the right at 100) and time runs vertically, flowing downward — oldest
+  // at the top, the live point at the bottom.
+  const toX = (yes: number) => inset(1 - Math.min(100, Math.max(0, yes)) / 100);
+  const toY = (time: number) => insetTime((time - domainStart) / domainSpan);
 
   // Break the line at each 15m rollover instead of connecting across it or
   // papering over the transition — the real fix for the old "dead 0 lull"
@@ -133,20 +147,24 @@ export function MarketChart({ symbol, history, currentYes, market, unrealizedDol
   for (const seg of segments) {
     if (seg.length < 2) continue;
     const segLine = seg
-      .map((p, i) => `${i === 0 ? "M" : "L"} ${toX(p.time).toFixed(2)} ${toY(p.yes).toFixed(2)}`)
+      .map((p, i) => `${i === 0 ? "M" : "L"} ${toX(p.yes).toFixed(2)} ${toY(p.time).toFixed(2)}`)
       .join(" ");
     linePieces.push(segLine);
-    const lastX = toX(seg[seg.length - 1].time).toFixed(2);
-    const firstX = toX(seg[0].time).toFixed(2);
-    areaPieces.push(`${segLine} L ${lastX} 100 L ${firstX} 100 Z`);
+    // Fills toward the NO=100 reference line, not the raw chart edge — past
+    // that line isn't a real value the price can take, so color shouldn't
+    // extend past it.
+    const baseline = toX(0).toFixed(2);
+    const lastY = toY(seg[seg.length - 1].time).toFixed(2);
+    const firstY = toY(seg[0].time).toFixed(2);
+    areaPieces.push(`${segLine} L ${baseline} ${lastY} L ${baseline} ${firstY} Z`);
   }
   const lineD = linePieces.join(" ");
   const areaD = areaPieces.join(" ");
 
-  // A vertical divider at every window rollover the chart's current view
+  // A horizontal divider at every window rollover the chart's current view
   // spans — makes the boundary between two different contracts obvious at
   // a glance, on top of (not instead of) breaking the line itself.
-  const boundaryXs = segments.slice(1).map((seg) => toX(seg[0].time));
+  const boundaryYs = segments.slice(1).map((seg) => toY(seg[0].time));
 
   // Each segment is one 15m market's data — the countdown a hovered point
   // shows is time left in *that* market, not the currently active one. The
@@ -168,21 +186,21 @@ export function MarketChart({ symbol, history, currentYes, market, unrealizedDol
 
   const gradientId = `chart-fill-${symbol}`;
   const lastPoint = points.length > 0 ? points[points.length - 1] : null;
-  const dotX = lastPoint ? toX(lastPoint.time) : null;
-  const dotY = lastPoint ? toY(lastPoint.yes) : null;
+  const dotX = lastPoint ? toX(lastPoint.yes) : null;
+  const dotY = lastPoint ? toY(lastPoint.time) : null;
 
   function handleHoverMove(e: MouseEvent<HTMLDivElement>) {
     if (points.length === 0) return;
     const rect = plotRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return;
-    const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
-    const frac01 = (xPercent - MARGIN) / (100 - 2 * MARGIN);
+    if (!rect || rect.height === 0) return;
+    const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
+    const frac01 = (yPercent - MARGIN_TIME_TOP) / (100 - MARGIN_TIME_TOP - MARGIN_TIME_BOTTOM);
     const time = domainStart + frac01 * domainSpan;
     setHoverPoint(nearestPoint(points, time));
   }
 
-  const hoverX = hoverPoint ? toX(hoverPoint.time) : null;
-  const hoverY = hoverPoint ? toY(hoverPoint.yes) : null;
+  const hoverX = hoverPoint ? toX(hoverPoint.yes) : null;
+  const hoverY = hoverPoint ? toY(hoverPoint.time) : null;
   const hoverColor = hoverPoint && hoverPoint.ticker !== lastPoint?.ticker ? DEFAULT_COLOR : color;
   const hoverCloseTime = hoverPoint?.ticker ? closeTimeByTicker.get(hoverPoint.ticker) : undefined;
   const hoverCountdown =
@@ -198,43 +216,46 @@ export function MarketChart({ symbol, history, currentYes, market, unrealizedDol
       >
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="chart-svg">
           <defs>
-            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            {/* Opaque at the left (YES) edge, fading to transparent at
+                the right (NO) baseline — mirrors the old top-opaque,
+                bottom-transparent fade rotated onto the new axes. */}
+            <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%" stopColor={color} stopOpacity="0.35" />
               <stop offset="100%" stopColor={color} stopOpacity="0" />
             </linearGradient>
           </defs>
           {areaD && <path d={areaD} fill={`url(#${gradientId})`} stroke="none" />}
           <line
-            x1={0}
-            x2={100}
-            y1={toY(50)}
-            y2={toY(50)}
+            x1={toX(50)}
+            x2={toX(50)}
+            y1={0}
+            y2={100}
             className="chart-mid-line"
             vectorEffect="non-scaling-stroke"
           />
           <line
-            x1={0}
-            x2={100}
-            y1={toY(0)}
-            y2={toY(0)}
+            x1={toX(0)}
+            x2={toX(0)}
+            y1={0}
+            y2={100}
             className="chart-edge-line"
             vectorEffect="non-scaling-stroke"
           />
           <line
-            x1={0}
-            x2={100}
-            y1={toY(100)}
-            y2={toY(100)}
+            x1={toX(100)}
+            x2={toX(100)}
+            y1={0}
+            y2={100}
             className="chart-edge-line"
             vectorEffect="non-scaling-stroke"
           />
-          {boundaryXs.map((x, i) => (
+          {boundaryYs.map((y, i) => (
             <line
               key={i}
-              x1={x}
-              x2={x}
-              y1={0}
-              y2={100}
+              x1={0}
+              x2={100}
+              y1={y}
+              y2={y}
               className="chart-boundary-line"
               vectorEffect="non-scaling-stroke"
             />
@@ -250,12 +271,12 @@ export function MarketChart({ symbol, history, currentYes, market, unrealizedDol
               vectorEffect="non-scaling-stroke"
             />
           )}
-          {hoverX !== null && (
+          {hoverY !== null && (
             <line
-              x1={hoverX}
-              x2={hoverX}
-              y1={0}
-              y2={100}
+              x1={0}
+              x2={100}
+              y1={hoverY}
+              y2={hoverY}
               className="chart-hover-line"
               vectorEffect="non-scaling-stroke"
             />

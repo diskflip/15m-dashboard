@@ -15,6 +15,16 @@
   cursor: default;
 }
 
+/* Desktop's single-row-of-6 grid stretches each card to the row's full
+   height (see App.css's market-grid) — this makes the card itself actually
+   fill that stretched space instead of staying its natural content height,
+   so the chart below can flex-grow into the leftover room. */
+@media (min-width: 900px) {
+  .market-bar {
+    height: 100%;
+  }
+}
+
 .market-bar.state-resting {
   border-color: rgba(77, 163, 255, 0.35);
   box-shadow: 0 0 10px rgba(77, 163, 255, 0.18);
@@ -50,6 +60,8 @@
 .bar-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 4px;
   gap: 7px;
 }
 
@@ -113,6 +125,87 @@
 
 .bar-pnl.negative {
   color: #f0506e;
+}
+
+/* Bottom row of the card: BTC's live spot price at the left, the paper-sim
+   figure at the right — both quiet/secondary, well below the real P&L up
+   top so neither is mistaken for it. */
+.bar-footer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.bar-footer-spot {
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* Paper-trading simulation figure — visually quiet (small, low default
+   opacity) so it reads as a secondary/theoretical number, never mistaken
+   for real P&L. */
+.bar-pnl-sim {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.4);
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+
+.bar-pnl-sim.positive {
+  color: #7fd4c9;
+}
+
+.bar-pnl-sim.negative {
+  color: #c97f8f;
+}
+
+.bar-pnl-sim.flash {
+  opacity: 1;
+  color: #ffc828;
+  animation: sim-win-pulse 1.4s ease-out;
+}
+
+.bar-pnl-sim-group {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+/* Rolling last-hour slice next to the session-long sim figure — quieter
+   still, since the session total is the primary read and this is just
+   context for how the last hour specifically has looked. */
+.bar-pnl-sim-hour {
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.bar-pnl-sim-hour.positive {
+  color: #7fd4c9;
+  opacity: 0.75;
+}
+
+.bar-pnl-sim-hour.negative {
+  color: #c97f8f;
+  opacity: 0.75;
+}
+
+@keyframes sim-win-pulse {
+  0% {
+    text-shadow: 0 0 0 rgba(255, 200, 40, 0);
+  }
+  25% {
+    text-shadow: 0 0 8px rgba(255, 200, 40, 0.7);
+  }
+  100% {
+    text-shadow: 0 0 0 rgba(255, 200, 40, 0);
+  }
 }
 
 .bar-row-right {

@@ -12,6 +12,17 @@ export type MarketState = {
   resting: boolean;
   holding: boolean;
   pnlDollars: number;
+  // Paper-trading simulation totals — see server/simTracker.ts. Not real
+  // money; a live "would my bots be winning right now" read.
+  simDollars: number;
+  // Rolling last-hour slice of the same paper-trading total, shown
+  // alongside the session-long simDollars.
+  simLastHourDollars: number;
+  simWins: number;
+  simLosses: number;
+  // Unix-ms timestamp of the last simulated trade resolving, tagged with
+  // whether it won — consumers can watch this to flash the paper stat.
+  simFlash: { time: number; result: "win" | "loss" } | null;
   // Live unrealized position in the currently active ticker — signed
   // (positive = net YES contracts, negative = net NO). Both 0 when flat.
   positionFp: number;
@@ -23,6 +34,9 @@ export type MarketState = {
   // position) — consumers can watch this to trigger a one-off "order
   // filled" sound/animation.
   buyInFlash: number | null;
+  // Live BTC/USD spot price in dollars — see server/spotPrice.ts. Null for
+  // every symbol except BTC (and null there until the first poll lands).
+  spotPriceDollars: number | null;
 };
 
 // One WebSocket (see data/kalshi.ts) carries every configured market's
@@ -44,13 +58,24 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
   const [resting, setResting] = useState(false);
   const [holding, setHolding] = useState(false);
   const [pnlDollars, setPnlDollars] = useState(0);
+  const [simDollars, setSimDollars] = useState(0);
+  const [simLastHourDollars, setSimLastHourDollars] = useState(0);
+  const [simWins, setSimWins] = useState(0);
+  const [simLosses, setSimLosses] = useState(0);
+  const [simFlash, setSimFlash] = useState<{ time: number; result: "win" | "loss" } | null>(null);
   const [positionFp, setPositionFp] = useState(0);
   const [costDollars, setCostDollars] = useState(0);
   const [winFlash, setWinFlash] = useState<number | null>(null);
   const [buyInFlash, setBuyInFlash] = useState<number | null>(null);
+  const [spotPriceDollars, setSpotPriceDollars] = useState<number | null>(null);
 
   const currentTickerRef = useRef<string | null>(null);
   const lastYesRef = useRef<number | null>(null);
+  // A "sim" message replays the tracker's full snapshot (including
+  // lastTrade) on every reconnect, not just when a new trade actually
+  // resolves — dedupe against this so simFlash only fires for genuinely new
+  // resolutions, not a stale trade replayed from before this client connected.
+  const lastSimTradeTimeRef = useRef<number | null>(null);
 
   // The chart shows a rolling 30-minute lookback that keeps going across a
   // 15m window rollover (a new Kalshi contract opening doesn't mean "start
@@ -81,12 +106,19 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
       setResting(false);
       setHolding(false);
       setPnlDollars(0);
+      setSimDollars(0);
+      setSimLastHourDollars(0);
+      setSimWins(0);
+      setSimLosses(0);
+      setSimFlash(null);
       setPositionFp(0);
       setCostDollars(0);
       setWinFlash(null);
       setBuyInFlash(null);
+      setSpotPriceDollars(null);
       currentTickerRef.current = null;
       lastYesRef.current = null;
+      lastSimTradeTimeRef.current = null;
       return;
     }
 
@@ -138,6 +170,19 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
         } else if (msg.type === "pnl") {
           if (msg.symbol !== symbol) return;
           setPnlDollars(msg.dollars);
+        } else if (msg.type === "sim") {
+          if (msg.symbol !== symbol) return;
+          setSimDollars(msg.totalDollars);
+          setSimLastHourDollars(msg.lastHourDollars);
+          setSimWins(msg.wins);
+          setSimLosses(msg.losses);
+          if (msg.lastTrade && msg.lastTrade.time !== lastSimTradeTimeRef.current) {
+            lastSimTradeTimeRef.current = msg.lastTrade.time;
+            setSimFlash({ time: Date.now(), result: msg.lastTrade.result });
+          }
+        } else if (msg.type === "spot") {
+          if (msg.symbol !== symbol) return;
+          setSpotPriceDollars(msg.priceDollars);
         } else if (msg.type === "position") {
           if (msg.symbol !== symbol) return;
           setPositionFp(msg.positionFp);
@@ -174,9 +219,15 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
     resting,
     holding,
     pnlDollars,
+    simDollars,
+    simLastHourDollars,
+    simWins,
+    simLosses,
+    simFlash,
     positionFp,
     costDollars,
     winFlash,
     buyInFlash,
+    spotPriceDollars,
   };
 }

@@ -5,13 +5,15 @@ import { KalshiFeed } from "./kalshiSocket.ts";
 import { KalshiFillsFeed, type PositionUpdate } from "./kalshiFills.ts";
 import { FlipTracker } from "./flipTracker.ts";
 import { PnlTracker } from "./pnlTracker.ts";
+import { SimTracker } from "./simTracker.ts";
+import { startBtcSpotFeed } from "./spotPrice.ts";
 import {
   fetchPortfolioSnapshot,
   fetchTickerRealizedPnl,
   fetchTodaysRealizedPnlBySeries,
   type PortfolioSnapshot,
 } from "./portfolio.ts";
-import { getPnlSince } from "./pnlReset.ts";
+import { getPnlSince, resetPnlNow } from "./pnlReset.ts";
 
 // The only job of this process: for each configured market (BTC, DOGE, ...),
 // find the live 15m Kalshi market, subscribe to Kalshi's `ticker` feed for
@@ -26,6 +28,7 @@ const FLIPS_REBROADCAST_MS = 10_000;
 const PORTFOLIO_POLL_MS = 5_000;
 
 let lastPortfolio: PortfolioSnapshot | null = null;
+let lastBtcSpotDollars: number | null = null;
 
 function broadcast(message: unknown) {
   const data = JSON.stringify(message);
@@ -77,6 +80,14 @@ function pnlMessage(symbol: string, pnl: PnlTracker) {
   return { type: "pnl", symbol, dollars: pnl.total() };
 }
 
+function simMessage(symbol: string, sim: SimTracker) {
+  return { type: "sim", symbol, ...sim.snapshot() };
+}
+
+function spotMessage(symbol: string, priceDollars: number) {
+  return { type: "spot", symbol, priceDollars };
+}
+
 function positionMessage(symbol: string, position: OpenPosition | null) {
   return {
     type: "position",
@@ -103,6 +114,7 @@ type TrackedMarket = {
   feed: KalshiFeed;
   flips: FlipTracker;
   pnl: PnlTracker;
+  sim: SimTracker;
   // Live unrealized position in `active`, from the private market_positions
   // push — null whenever flat. Cleared on every market switch since it's
   // scoped to one ticker, not carried across windows.
@@ -113,6 +125,7 @@ type OpenPosition = { positionFp: number; costDollars: number };
 
 const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTicker }) => {
   const flips = new FlipTracker();
+  const sim = new SimTracker();
   const feed = new KalshiFeed(({ yes }) => {
     broadcast({
       type: "price",
@@ -121,6 +134,9 @@ const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTick
     });
     if (flips.onPrice(yes)) {
       broadcast(flipsMessage(symbol, flips));
+    }
+    if (sim.onPrice(yes)) {
+      broadcast(simMessage(symbol, sim));
     }
   });
   feed.start();
@@ -133,11 +149,48 @@ const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTick
     feed,
     flips,
     pnl: new PnlTracker(),
+    sim,
     position: null,
   };
 });
 
+// Real (not simulated) daily P&L, cleared on demand from the UI — see
+// pnlReset.ts. Moves the "since" cutoff to now (persisted, survives a
+// restart) and zeroes every market's in-memory session total immediately so
+// the UI reflects $0 without needing a server restart, which would also
+// wipe unrelated in-memory state (paper-sim totals, flip counts) that
+// wasn't asked to be cleared.
+function resetTodaysPnl() {
+  resetPnlNow();
+  for (const market of trackedMarkets) {
+    market.pnl.reset();
+    broadcast(pnlMessage(market.symbol, market.pnl));
+  }
+  console.log("[pnl] reset for the day");
+}
+
+// Paper-trading sim totals — separate from the real P&L reset above (see its
+// comment): only clears when explicitly asked for, not bundled by default.
+function resetTodaysSim() {
+  for (const market of trackedMarkets) {
+    market.sim.reset();
+    broadcast(simMessage(market.symbol, market.sim));
+  }
+  console.log("[sim] reset for the day");
+}
+
 wss.on("connection", (client) => {
+  client.on("message", (raw) => {
+    let msg: any;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+    if (msg?.cmd === "resetPnl") resetTodaysPnl();
+    if (msg?.cmd === "resetSim") resetTodaysSim();
+  });
+
   client.send(JSON.stringify({ type: "status", connected: true }));
   for (const market of trackedMarkets) {
     if (market.active) {
@@ -145,6 +198,7 @@ wss.on("connection", (client) => {
     }
     client.send(JSON.stringify(flipsMessage(market.symbol, market.flips)));
     client.send(JSON.stringify(pnlMessage(market.symbol, market.pnl)));
+    client.send(JSON.stringify(simMessage(market.symbol, market.sim)));
     client.send(JSON.stringify(positionMessage(market.symbol, market.position)));
   }
   if (lastPortfolio) {
@@ -154,6 +208,9 @@ wss.on("connection", (client) => {
         JSON.stringify(orderStatusMessage(market.symbol, market.active?.ticker, lastPortfolio))
       );
     }
+  }
+  if (lastBtcSpotDollars !== null) {
+    client.send(JSON.stringify(spotMessage("BTC", lastBtcSpotDollars)));
   }
 });
 
@@ -169,9 +226,11 @@ function applyMarketSwitch(market: TrackedMarket, found: CurrentMarket) {
   // coming).
   market.feed.promote(found.ticker);
   market.flips.onMarketChange(found.ticker);
+  market.sim.onMarketChange(found.ticker);
   if (closingTicker) settleClosedWindow(market, closingTicker);
   broadcast(marketMessage(market.symbol, found));
   broadcast(flipsMessage(market.symbol, market.flips));
+  broadcast(simMessage(market.symbol, market.sim));
   broadcast(positionMessage(market.symbol, null));
   if (lastPortfolio) {
     broadcast(orderStatusMessage(market.symbol, found.ticker, lastPortfolio));
@@ -382,5 +441,10 @@ const fillsFeed = new KalshiFillsFeed(
   }
 );
 fillsFeed.start();
+
+startBtcSpotFeed((dollars) => {
+  lastBtcSpotDollars = dollars;
+  broadcast(spotMessage("BTC", dollars));
+});
 
 console.log(`[flip-monitor] local WS server listening on :${config.localWsPort}`);

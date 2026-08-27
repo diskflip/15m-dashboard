@@ -19,6 +19,11 @@ const BACKEND_WS_URL =
   defaultBackendWsUrl();
 
 const RECONNECT_DELAY_MS = 2000;
+// Vite's dev-server WS proxy occasionally leaves a fresh connection stuck in
+// CONNECTING forever — no open/error/close event ever fires, so without a
+// deadline the app is stuck showing zero data until a manual page reload.
+// This forces a retry if the handshake doesn't finish in time.
+const CONNECT_TIMEOUT_MS = 5000;
 
 type Listener = {
   onMessage: (msg: ServerMessage) => void;
@@ -43,14 +48,23 @@ const listeners = new Set<Listener>();
 function ensureSocket() {
   if (socket) return;
 
-  socket = new WebSocket(BACKEND_WS_URL);
+  const ws = new WebSocket(BACKEND_WS_URL);
+  socket = ws;
 
-  socket.onopen = () => {
+  // If the handshake never resolves (open/error/close all silent — seen
+  // against Vite's dev WS proxy), tear this one down and let the normal
+  // onclose retry path take over instead of hanging forever.
+  const connectTimeout = setTimeout(() => {
+    if (ws.readyState === WebSocket.CONNECTING) ws.close();
+  }, CONNECT_TIMEOUT_MS);
+
+  ws.onopen = () => {
+    clearTimeout(connectTimeout);
     lastKnownConnected = true;
     for (const l of listeners) l.onStatusChange(true);
   };
 
-  socket.onmessage = (event) => {
+  ws.onmessage = (event) => {
     let msg: ServerMessage;
     try {
       msg = JSON.parse(event.data);
@@ -60,7 +74,8 @@ function ensureSocket() {
     for (const l of listeners) l.onMessage(msg);
   };
 
-  socket.onclose = () => {
+  ws.onclose = () => {
+    clearTimeout(connectTimeout);
     socket = null;
     lastKnownConnected = false;
     for (const l of listeners) l.onStatusChange(false);
@@ -69,8 +84,8 @@ function ensureSocket() {
     }
   };
 
-  socket.onerror = () => {
-    socket?.close();
+  ws.onerror = () => {
+    ws.close();
   };
 }
 
@@ -101,4 +116,14 @@ export function connectToBackend(
       socket = null;
     }
   };
+}
+
+// One-off commands to the backend (currently just "clear today's P&L") —
+// distinct from the listener stream above, which is read-only. No-ops
+// silently if the socket isn't open; callers only ever fire this from a
+// user click, where a missed click is fine to just retry.
+export function sendToBackend(message: unknown) {
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(message));
+  }
 }
