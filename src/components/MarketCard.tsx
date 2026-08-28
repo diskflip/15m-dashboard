@@ -41,8 +41,6 @@ type MarketCardProps = {
   // Reported up so the app-level total can sum across every market without
   // each one having to stay mounted at the App level.
   onPnlChange: (symbol: string, dollars: number) => void;
-  // Same idea, for the paper-trading simulation total — see server/simTracker.ts.
-  onSimPnlChange: (symbol: string, dollars: number, lastHourDollars: number) => void;
   // Every 15m market shares the same close time, so the countdown is shown
   // once at the App level instead of once per bar — this just feeds it up.
   onCloseTimeChange: (time: number | null) => void;
@@ -63,18 +61,25 @@ export const MarketCard = memo(function MarketCard({
   enabled,
   onToggle,
   onPnlChange,
-  onSimPnlChange,
   onCloseTimeChange,
   onStatusChange,
 }: MarketCardProps) {
   const [winning, setWinning] = useState(false);
   const [simWinning, setSimWinning] = useState(false);
-  // Collapsed by default on mobile widths so more markets fit on screen at
-  // once without scrolling — tap a bar to expand its chart. Desktop keeps
-  // the previous always-expanded default. 900px matches App.css's own
-  // desktop-grid breakpoint. Read once at mount (not kept in sync with
-  // resize) since this is only meant to pick the *initial* state.
-  const [expanded, setExpanded] = useState(() => window.matchMedia("(min-width: 900px)").matches);
+  const [sim40Winning, setSim40Winning] = useState(false);
+  // Below 900px (matches App.css's desktop-grid breakpoint), charts are
+  // hidden entirely — collapsed bars only, so every market fits on a phone
+  // screen at once without scrolling. Kept in sync with resize/rotation
+  // (not just read once at mount) so a phone rotated to landscape past the
+  // breakpoint behaves like desktop.
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia("(min-width: 900px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 900px)");
+    const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  const [expanded, setExpanded] = useState(isDesktop);
   const {
     currentYes,
     market,
@@ -87,6 +92,10 @@ export const MarketCard = memo(function MarketCard({
     simWins,
     simLosses,
     simFlash,
+    sim40Dollars,
+    sim40Wins,
+    sim40Losses,
+    sim40Flash,
     positionFp,
     costDollars,
     winFlash,
@@ -97,10 +106,6 @@ export const MarketCard = memo(function MarketCard({
   useEffect(() => {
     onPnlChange(symbol, pnlDollars);
   }, [symbol, pnlDollars, onPnlChange]);
-
-  useEffect(() => {
-    onSimPnlChange(symbol, simDollars, simLastHourDollars);
-  }, [symbol, simDollars, simLastHourDollars, onSimPnlChange]);
 
   useEffect(() => {
     onStatusChange(symbol, resting, holding);
@@ -128,14 +133,22 @@ export const MarketCard = memo(function MarketCard({
     return () => clearTimeout(t);
   }, [simFlash]);
 
-  // A real entry fill means this market now matters — expand it (e.g. from
-  // the mobile collapsed-by-default state) so its chart is immediately
-  // visible instead of requiring a manual tap to find out what happened.
+  useEffect(() => {
+    if (sim40Flash === null || sim40Flash.result !== "win") return;
+    setSim40Winning(true);
+    const t = setTimeout(() => setSim40Winning(false), 1400);
+    return () => clearTimeout(t);
+  }, [sim40Flash]);
+
+  // A real entry fill means this market now matters — expand it so its
+  // chart is immediately visible instead of requiring a manual tap to find
+  // out what happened. Desktop only: on mobile, charts stay hidden no
+  // matter what so every card fits on screen at once.
   useEffect(() => {
     if (buyInFlash === null) return;
     playBuyInSound();
-    setExpanded(true);
-  }, [buyInFlash]);
+    if (isDesktop) setExpanded(true);
+  }, [buyInFlash, isDesktop]);
 
   useEffect(() => {
     if (enabled) onCloseTimeChange(market?.closeTime ?? null);
@@ -160,7 +173,7 @@ export const MarketCard = memo(function MarketCard({
         enabled && holding ? "state-holding" : enabled && resting ? "state-resting" : ""
       } ${enabled && winning ? "win-flash" : ""}`}
       onClick={() => {
-        if (enabled) setExpanded((e) => !e);
+        if (enabled && isDesktop) setExpanded((e) => !e);
       }}
     >
       <div className="bar-row">
@@ -208,7 +221,7 @@ export const MarketCard = memo(function MarketCard({
         </div>
       </div>
 
-      {enabled && expanded && (
+      {enabled && expanded && isDesktop && (
         <MarketChart
           symbol={symbol}
           history={history}
@@ -223,18 +236,26 @@ export const MarketCard = memo(function MarketCard({
           <span className="bar-footer-spot">
             {symbol === "BTC" ? formatSpotPrice(spotPriceDollars) : ""}
           </span>
-          <span className="bar-pnl-sim-group">
-            <span
-              className={`bar-pnl-sim ${pnlClass(simDollars)} ${simWinning ? "flash" : ""}`}
-              title={`Paper trade sim: ${simWins}W / ${simLosses}L — $5 in at 6c, out at 95c`}
-            >
-              {formatPnl(simDollars)}
+          <span className="bar-pnl-sim-row">
+            <span className="bar-pnl-sim-group">
+              <span
+                className={`bar-pnl-sim ${pnlClass(simDollars)} ${simWinning ? "flash" : ""}`}
+                title={`Paper trade sim: ${simWins}W / ${simLosses}L — $5 in at 6c, out at 95c`}
+              >
+                {formatPnl(simDollars)}
+              </span>
+              <span
+                className={`bar-pnl-sim-hour ${pnlClass(simLastHourDollars)}`}
+                title="Paper trade sim, last hour only"
+              >
+                {formatPnl(simLastHourDollars)}
+              </span>
             </span>
             <span
-              className={`bar-pnl-sim-hour ${pnlClass(simLastHourDollars)}`}
-              title="Paper trade sim, last hour only"
+              className={`bar-pnl-sim40 ${pnlClass(sim40Dollars)} ${sim40Winning ? "flash" : ""}`}
+              title={`Paper trade sim: ${sim40Wins}W / ${sim40Losses}L — $5 in at 6c, out at 40c, last 30m`}
             >
-              {formatPnl(simLastHourDollars)}
+              {formatPnl(sim40Dollars)}
             </span>
           </span>
         </div>

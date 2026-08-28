@@ -54,6 +54,24 @@ export type ServerMessage =
         time: number;
       } | null;
     }
+  // Faster-cycling variant of the same paper-trading idea: 6c-in, 40c-out
+  // instead of 95c — see server/simTracker.ts. Only the rolling last-30-min
+  // figure is tracked/shown, not a session total, since the point is a
+  // quick read on how the last half hour specifically has looked.
+  | {
+      type: "sim40";
+      symbol: string;
+      dollars: number;
+      wins: number;
+      losses: number;
+      lastTrade: {
+        side: "yes" | "no";
+        result: "win" | "loss";
+        entryCents: number;
+        profitDollars: number;
+        time: number;
+      } | null;
+    }
   // Live BTC/USD spot price in dollars, independent of any Kalshi contract
   // — see server/spotPrice.ts. Only ever sent for symbol "BTC".
   | { type: "spot"; symbol: string; priceDollars: number }

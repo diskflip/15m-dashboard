@@ -23,6 +23,13 @@ export type MarketState = {
   // Unix-ms timestamp of the last simulated trade resolving, tagged with
   // whether it won — consumers can watch this to flash the paper stat.
   simFlash: { time: number; result: "win" | "loss" } | null;
+  // Faster-cycling paper-trading variant (6c-in, 40c-out) — see
+  // server/simTracker.ts. Only a rolling last-30-min figure, no session
+  // total, shown side by side with the slower 95c-exit sim above.
+  sim40Dollars: number;
+  sim40Wins: number;
+  sim40Losses: number;
+  sim40Flash: { time: number; result: "win" | "loss" } | null;
   // Live unrealized position in the currently active ticker — signed
   // (positive = net YES contracts, negative = net NO). Both 0 when flat.
   positionFp: number;
@@ -63,6 +70,10 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
   const [simWins, setSimWins] = useState(0);
   const [simLosses, setSimLosses] = useState(0);
   const [simFlash, setSimFlash] = useState<{ time: number; result: "win" | "loss" } | null>(null);
+  const [sim40Dollars, setSim40Dollars] = useState(0);
+  const [sim40Wins, setSim40Wins] = useState(0);
+  const [sim40Losses, setSim40Losses] = useState(0);
+  const [sim40Flash, setSim40Flash] = useState<{ time: number; result: "win" | "loss" } | null>(null);
   const [positionFp, setPositionFp] = useState(0);
   const [costDollars, setCostDollars] = useState(0);
   const [winFlash, setWinFlash] = useState<number | null>(null);
@@ -76,6 +87,8 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
   // resolves — dedupe against this so simFlash only fires for genuinely new
   // resolutions, not a stale trade replayed from before this client connected.
   const lastSimTradeTimeRef = useRef<number | null>(null);
+  // Same dedupe idea as lastSimTradeTimeRef, for the separate 6c/40c tracker.
+  const lastSim40TradeTimeRef = useRef<number | null>(null);
 
   // The chart shows a rolling 30-minute lookback that keeps going across a
   // 15m window rollover (a new Kalshi contract opening doesn't mean "start
@@ -111,6 +124,10 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
       setSimWins(0);
       setSimLosses(0);
       setSimFlash(null);
+      setSim40Dollars(0);
+      setSim40Wins(0);
+      setSim40Losses(0);
+      setSim40Flash(null);
       setPositionFp(0);
       setCostDollars(0);
       setWinFlash(null);
@@ -119,6 +136,7 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
       currentTickerRef.current = null;
       lastYesRef.current = null;
       lastSimTradeTimeRef.current = null;
+      lastSim40TradeTimeRef.current = null;
       return;
     }
 
@@ -180,6 +198,15 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
             lastSimTradeTimeRef.current = msg.lastTrade.time;
             setSimFlash({ time: Date.now(), result: msg.lastTrade.result });
           }
+        } else if (msg.type === "sim40") {
+          if (msg.symbol !== symbol) return;
+          setSim40Dollars(msg.dollars);
+          setSim40Wins(msg.wins);
+          setSim40Losses(msg.losses);
+          if (msg.lastTrade && msg.lastTrade.time !== lastSim40TradeTimeRef.current) {
+            lastSim40TradeTimeRef.current = msg.lastTrade.time;
+            setSim40Flash({ time: Date.now(), result: msg.lastTrade.result });
+          }
         } else if (msg.type === "spot") {
           if (msg.symbol !== symbol) return;
           setSpotPriceDollars(msg.priceDollars);
@@ -224,6 +251,10 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
     simWins,
     simLosses,
     simFlash,
+    sim40Dollars,
+    sim40Wins,
+    sim40Losses,
+    sim40Flash,
     positionFp,
     costDollars,
     winFlash,

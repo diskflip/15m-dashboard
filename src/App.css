@@ -56,40 +56,19 @@
   color: #f0506e;
 }
 
-/* Paper-trading simulation total — deliberately quieter than the real P&L
-   next to it (smaller, dimmer) so the two are never confused, but still
-   readable at a glance since it's the whole point of the feature. */
-.sim-pnl-value {
-  display: flex;
-  align-items: baseline;
-  gap: 3px;
+.pnl-value {
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.5);
 }
 
-.sim-pnl-label {
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  opacity: 0.7;
+.pnl-value.positive {
+  color: #2fd996;
 }
 
-.sim-pnl-value.positive {
-  color: #7fd4c9;
-}
-
-.sim-pnl-value.negative {
-  color: #c97f8f;
-}
-
-/* Rolling last-hour slice sitting right next to the session SIM total —
-   quieter (smaller, dimmer) so the running total stays the primary read. */
-.sim-pnl-value.sim-pnl-hour {
-  margin-left: 0;
-  font-size: 10px;
-  opacity: 0.7;
+.pnl-value.negative {
+  color: #f0506e;
 }
 
 /* Small, quiet control next to the real P&L figure — clears today's

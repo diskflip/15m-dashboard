@@ -81,7 +81,33 @@ function pnlMessage(symbol: string, pnl: PnlTracker) {
 }
 
 function simMessage(symbol: string, sim: SimTracker) {
-  return { type: "sim", symbol, ...sim.snapshot() };
+  const snap = sim.snapshot();
+  return {
+    type: "sim",
+    symbol,
+    totalDollars: snap.totalDollars,
+    lastHourDollars: snap.windowDollars,
+    wins: snap.wins,
+    losses: snap.losses,
+    lastTrade: snap.lastTrade,
+  };
+}
+
+// Faster-cycling variant of the same paper-trading idea: 6c-in, 40c-out
+// instead of 95c — exits earlier for a smaller, more frequent profit. Only
+// the rolling last-30-minutes figure matters here (no session total shown),
+// since the point is a quick read on how the last half hour specifically
+// has looked, side by side with the slower 95c-exit figure.
+function sim40Message(symbol: string, sim: SimTracker) {
+  const snap = sim.snapshot();
+  return {
+    type: "sim40",
+    symbol,
+    dollars: snap.windowDollars,
+    wins: snap.wins,
+    losses: snap.losses,
+    lastTrade: snap.lastTrade,
+  };
 }
 
 function spotMessage(symbol: string, priceDollars: number) {
@@ -115,6 +141,7 @@ type TrackedMarket = {
   flips: FlipTracker;
   pnl: PnlTracker;
   sim: SimTracker;
+  sim40: SimTracker;
   // Live unrealized position in `active`, from the private market_positions
   // push — null whenever flat. Cleared on every market switch since it's
   // scoped to one ticker, not carried across windows.
@@ -126,6 +153,7 @@ type OpenPosition = { positionFp: number; costDollars: number };
 const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTicker }) => {
   const flips = new FlipTracker();
   const sim = new SimTracker();
+  const sim40 = new SimTracker(6, 40, 5, 30 * 60);
   const feed = new KalshiFeed(({ yes }) => {
     broadcast({
       type: "price",
@@ -137,6 +165,9 @@ const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTick
     }
     if (sim.onPrice(yes)) {
       broadcast(simMessage(symbol, sim));
+    }
+    if (sim40.onPrice(yes)) {
+      broadcast(sim40Message(symbol, sim40));
     }
   });
   feed.start();
@@ -150,6 +181,7 @@ const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTick
     flips,
     pnl: new PnlTracker(),
     sim,
+    sim40,
     position: null,
   };
 });
@@ -174,7 +206,9 @@ function resetTodaysPnl() {
 function resetTodaysSim() {
   for (const market of trackedMarkets) {
     market.sim.reset();
+    market.sim40.reset();
     broadcast(simMessage(market.symbol, market.sim));
+    broadcast(sim40Message(market.symbol, market.sim40));
   }
   console.log("[sim] reset for the day");
 }
@@ -199,6 +233,7 @@ wss.on("connection", (client) => {
     client.send(JSON.stringify(flipsMessage(market.symbol, market.flips)));
     client.send(JSON.stringify(pnlMessage(market.symbol, market.pnl)));
     client.send(JSON.stringify(simMessage(market.symbol, market.sim)));
+    client.send(JSON.stringify(sim40Message(market.symbol, market.sim40)));
     client.send(JSON.stringify(positionMessage(market.symbol, market.position)));
   }
   if (lastPortfolio) {
@@ -227,10 +262,12 @@ function applyMarketSwitch(market: TrackedMarket, found: CurrentMarket) {
   market.feed.promote(found.ticker);
   market.flips.onMarketChange(found.ticker);
   market.sim.onMarketChange(found.ticker);
+  market.sim40.onMarketChange(found.ticker);
   if (closingTicker) settleClosedWindow(market, closingTicker);
   broadcast(marketMessage(market.symbol, found));
   broadcast(flipsMessage(market.symbol, market.flips));
   broadcast(simMessage(market.symbol, market.sim));
+  broadcast(sim40Message(market.symbol, market.sim40));
   broadcast(positionMessage(market.symbol, null));
   if (lastPortfolio) {
     broadcast(orderStatusMessage(market.symbol, found.ticker, lastPortfolio));

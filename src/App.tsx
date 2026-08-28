@@ -42,21 +42,11 @@ function App() {
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(MARKETS.map((m) => [m.symbol, true]))
   );
-  // Each card reports its own P&L up here — used to order the market list
-  // (see sortedMarkets below), not to show an aggregate total.
+  // Each card reports its own P&L up here so the total can sum across
+  // every market without all of them having to live at the App level —
+  // a paused (toggled-off) market reports 0 and drops out of the total.
   const [pnlBySymbol, setPnlBySymbol] = useState<Record<string, number>>({});
-
-  // Paper-trading simulation total across every market — see
-  // server/simTracker.ts. Shown alongside real P&L so it's a direct,
-  // side-by-side read on whether current conditions look worth running the
-  // bots for, not just a per-market curiosity.
-  const [simPnlBySymbol, setSimPnlBySymbol] = useState<Record<string, number>>({});
-  const totalSimPnl = Object.values(simPnlBySymbol).reduce((sum, v) => sum + v, 0);
-
-  // Rolling last-hour slice of the same paper total, summed the same way —
-  // see MarketCard's own bar-pnl-sim-hour for the per-market figure this aggregates.
-  const [simLastHourBySymbol, setSimLastHourBySymbol] = useState<Record<string, number>>({});
-  const totalSimLastHour = Object.values(simLastHourBySymbol).reduce((sum, v) => sum + v, 0);
+  const totalPnl = Object.values(pnlBySymbol).reduce((sum, v) => sum + v, 0);
 
   // Same idea as P&L: each card reports its own resting/holding state up
   // here so the list can be reordered around it — see sortedMarkets below.
@@ -72,13 +62,6 @@ function App() {
 
   const handlePnlChange = useCallback((symbol: string, dollars: number) => {
     setPnlBySymbol((prev) => (prev[symbol] === dollars ? prev : { ...prev, [symbol]: dollars }));
-  }, []);
-
-  const handleSimPnlChange = useCallback((symbol: string, dollars: number, lastHourDollars: number) => {
-    setSimPnlBySymbol((prev) => (prev[symbol] === dollars ? prev : { ...prev, [symbol]: dollars }));
-    setSimLastHourBySymbol((prev) =>
-      prev[symbol] === lastHourDollars ? prev : { ...prev, [symbol]: lastHourDollars }
-    );
   }, []);
 
   // One stable reference shared by every card (instead of a fresh closure
@@ -125,20 +108,7 @@ function App() {
         <div className="header-spacer" aria-hidden="true" />
         <Countdown closeTime={closeTime} />
         <div className="header-right">
-          <span
-            className={`sim-pnl-value ${pnlClass(totalSimPnl)}`}
-            title="Paper trade sim total across every market — $5 in at 6c, out at 95c, session-only"
-          >
-            <span className="sim-pnl-label">SIM</span>
-            {formatPnl(totalSimPnl)}
-          </span>
-          <span
-            className={`sim-pnl-value sim-pnl-hour ${pnlClass(totalSimLastHour)}`}
-            title="Paper trade sim total across every market, last hour only"
-          >
-            <span className="sim-pnl-label">1HR</span>
-            {formatPnl(totalSimLastHour)}
-          </span>
+          <span className={`pnl-value ${pnlClass(totalPnl)}`}>{formatPnl(totalPnl)}</span>
           <button
             type="button"
             className="pnl-reset-btn"
@@ -159,7 +129,6 @@ function App() {
               enabled={enabled[m.symbol]}
               onToggle={handleToggle}
               onPnlChange={handlePnlChange}
-              onSimPnlChange={handleSimPnlChange}
               onCloseTimeChange={handleCloseTimeChange}
               onStatusChange={handleStatusChange}
             />

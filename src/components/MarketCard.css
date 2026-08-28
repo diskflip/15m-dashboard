@@ -170,10 +170,46 @@
   animation: sim-win-pulse 1.4s ease-out;
 }
 
+/* Wraps both paper-sim strategy clusters (95c-exit and 40c-exit) so they
+   sit together on the right of the footer, separated by a divider. */
+.bar-pnl-sim-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
 .bar-pnl-sim-group {
   display: flex;
   align-items: baseline;
   gap: 5px;
+  padding-right: 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Faster-cycling 6c-in/40c-out variant — only a rolling last-30-min figure
+   (no session total), so it gets the same visual weight as the primary
+   bar-pnl-sim figure rather than the quieter last-hour sub-stat next to it. */
+.bar-pnl-sim40 {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.4);
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+
+.bar-pnl-sim40.positive {
+  color: #7fd4c9;
+}
+
+.bar-pnl-sim40.negative {
+  color: #c97f8f;
+}
+
+.bar-pnl-sim40.flash {
+  opacity: 1;
+  color: #ffc828;
+  animation: sim-win-pulse 1.4s ease-out;
 }
 
 /* Rolling last-hour slice next to the session-long sim figure — quieter
