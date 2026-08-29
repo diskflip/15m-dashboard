@@ -13,49 +13,34 @@ function formatSpotPrice(dollars: number | null): string {
   return dollars === null ? "—" : `$${Math.round(dollars).toLocaleString("en-US")}`;
 }
 
-// GOLD and SILVER's Kalshi CDN icon path didn't match what's actually
-// rendered on their market page (returned a generic ETF-ticker card
-// instead) — those two were captured directly from the page as PNGs; the
-// rest came straight from the CDN as webp. XRP/NEAR/HYPE came from
-// CoinCap's public icon CDN (assets.coincap.io) instead, since Kalshi
-// doesn't expose an icon URL through its REST API — also PNGs.
+// GOLD is a PNG captured from Kalshi's market page directly; the rest come
+// from the CDN as webp except XRP/NEAR/HYPE/SOL, sourced as PNGs from
+// CoinCap's public icon CDN.
 const ICON_EXT: Record<string, string> = {
   GOLD: "png",
-  SILVER: "png",
   XRP: "png",
   NEAR: "png",
   HYPE: "png",
+  SOL: "png",
 };
 function iconSrc(symbol: string): string {
   return `/icons/${symbol}.${ICON_EXT[symbol] ?? "webp"}`;
 }
 
 type MarketCardProps = {
-  symbol: string; // "BTC"
+  symbol: string;
   enabled: boolean;
-  // Takes symbol (rather than each card wrapping it in its own closure) so
-  // App can pass every card the exact same function reference — required
-  // for the memo() below to actually skip re-renders instead of seeing a
-  // "changed" prop every time.
+  // Takes symbol so App can pass every card the same function reference,
+  // which memo() below needs to actually skip re-renders.
   onToggle: (symbol: string) => void;
-  // Reported up so the app-level total can sum across every market without
-  // each one having to stay mounted at the App level.
   onPnlChange: (symbol: string, dollars: number) => void;
-  // Every 15m market shares the same close time, so the countdown is shown
-  // once at the App level instead of once per bar — this just feeds it up.
-  onCloseTimeChange: (time: number | null) => void;
-  // Reported up so the card list can be reordered around order state —
-  // holding/resting markets float to the top, see App.tsx.
+  onCloseTimeChange: (symbol: string, time: number | null) => void;
   onStatusChange: (symbol: string, resting: boolean, holding: boolean) => void;
 };
 
-// One market's live status: an identity row (icon, symbol, resting/holding
-// badge, P&L, toggle) over a collapsible line chart — tap the bar to hide
-// or show it, mirroring the entry/exit thresholds' dips and flips is the
-// chart's whole job, but you don't always want every card taking up that
-// much vertical space at once. Owns its own data subscription (useMarket)
-// so toggling the market off actually pauses the connection and commit
-// timer, not just hides content.
+// One market's live status: an identity row over a collapsible chart. Owns
+// its own data subscription (useMarket) so toggling it off actually pauses
+// the connection, not just hides content.
 export const MarketCard = memo(function MarketCard({
   symbol,
   enabled,
@@ -67,11 +52,8 @@ export const MarketCard = memo(function MarketCard({
   const [winning, setWinning] = useState(false);
   const [simWinning, setSimWinning] = useState(false);
   const [sim40Winning, setSim40Winning] = useState(false);
-  // Below 900px (matches App.css's desktop-grid breakpoint), charts are
-  // hidden entirely — collapsed bars only, so every market fits on a phone
-  // screen at once without scrolling. Kept in sync with resize/rotation
-  // (not just read once at mount) so a phone rotated to landscape past the
-  // breakpoint behaves like desktop.
+  // Below 900px (matches App.css's desktop-grid breakpoint), charts stay
+  // hidden — collapsed bars only, so every market fits on one phone screen.
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia("(min-width: 900px)").matches);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 900px)");
@@ -111,9 +93,6 @@ export const MarketCard = memo(function MarketCard({
     onStatusChange(symbol, resting, holding);
   }, [symbol, resting, holding, onStatusChange]);
 
-  // Gold glow for a couple seconds every time this market's P&L jumps up
-  // from a real settlement — re-triggers on each new winFlash timestamp
-  // even if a previous flash is still fading.
   useEffect(() => {
     if (winFlash === null) return;
     setWinning(true);
@@ -122,10 +101,8 @@ export const MarketCard = memo(function MarketCard({
     return () => clearTimeout(t);
   }, [winFlash]);
 
-  // Brief highlight on the paper stat only when a simulated trade *wins* —
-  // losses happen far more often than wins for this strategy (see
-  // FINDINGS.md) and would make the badge flicker constantly if it reacted
-  // to those too, so it stays quiet except for the outcome worth noticing.
+  // Only flash on a win — losses happen far more often and would make the
+  // badge flicker constantly.
   useEffect(() => {
     if (simFlash === null || simFlash.result !== "win") return;
     setSimWinning(true);
@@ -140,10 +117,8 @@ export const MarketCard = memo(function MarketCard({
     return () => clearTimeout(t);
   }, [sim40Flash]);
 
-  // A real entry fill means this market now matters — expand it so its
-  // chart is immediately visible instead of requiring a manual tap to find
-  // out what happened. Desktop only: on mobile, charts stay hidden no
-  // matter what so every card fits on screen at once.
+  // A real fill expands the chart so it's immediately visible — desktop
+  // only, mobile charts stay hidden regardless.
   useEffect(() => {
     if (buyInFlash === null) return;
     playBuyInSound();
@@ -151,16 +126,13 @@ export const MarketCard = memo(function MarketCard({
   }, [buyInFlash, isDesktop]);
 
   useEffect(() => {
-    if (enabled) onCloseTimeChange(market?.closeTime ?? null);
-  }, [enabled, market?.closeTime, onCloseTimeChange]);
+    onCloseTimeChange(symbol, enabled ? market?.closeTime ?? null : null);
+  }, [symbol, enabled, market?.closeTime, onCloseTimeChange]);
 
   const currentNo = currentYes === null ? null : 100 - currentYes;
 
-  // Mark-to-market against the live price: YES contracts are worth their
-  // current ask, NO contracts worth theirs — sign of positionFp says which
-  // side is actually held. costDollars is what was paid for it, so the
-  // difference is the unrealized gain/loss on the still-open position (as
-  // opposed to pnlDollars, which is today's already-*settled* total).
+  // Mark-to-market against the live price: sign of positionFp says which
+  // side is held; costDollars is what was paid for it.
   const unrealizedDollars =
     positionFp !== 0 && currentYes !== null && currentNo !== null
       ? (positionFp > 0 ? positionFp * (currentYes / 100) : -positionFp * (currentNo / 100)) -
@@ -240,7 +212,7 @@ export const MarketCard = memo(function MarketCard({
             <span className="bar-pnl-sim-group">
               <span
                 className={`bar-pnl-sim ${pnlClass(simDollars)} ${simWinning ? "flash" : ""}`}
-                title={`Paper trade sim: ${simWins}W / ${simLosses}L — $5 in at 6c, out at 95c`}
+                title={`Paper trade sim: ${simWins}W / ${simLosses}L — $1 in at 6c, out at 95c`}
               >
                 {formatPnl(simDollars)}
               </span>
@@ -253,7 +225,7 @@ export const MarketCard = memo(function MarketCard({
             </span>
             <span
               className={`bar-pnl-sim40 ${pnlClass(sim40Dollars)} ${sim40Winning ? "flash" : ""}`}
-              title={`Paper trade sim: ${sim40Wins}W / ${sim40Losses}L — $5 in at 6c, out at 40c, last 30m`}
+              title={`Paper trade sim: ${sim40Wins}W / ${sim40Losses}L — $1 in at 6c, out at 40c, last 30m`}
             >
               {formatPnl(sim40Dollars)}
             </span>

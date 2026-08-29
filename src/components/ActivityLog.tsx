@@ -14,11 +14,7 @@ const VISIBLE_MS = 6000;
 let nextId = 1;
 
 // A small, transient log of every real entry/exit fill across every
-// tracked market — added specifically so a buy-in/win sound can always be
-// traced back to exactly what traded (symbol, side, price) instead of
-// having to trust sound-vs-visible-position-change correlation, which is
-// easy to lose track of with several 15-minute markets rolling over (and
-// trading) close together.
+// tracked market.
 export function ActivityLog() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());

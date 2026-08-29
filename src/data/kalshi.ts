@@ -1,14 +1,9 @@
 import type { ServerMessage } from "../types/market";
 
-// Talks only to our local backend proxy (see server/index.ts), never to Kalshi
-// directly — the browser never sees Kalshi credentials.
-//
-// Defaults to a same-origin "/ws" path, proxied to the backend by Vite's dev
-// server (see vite.config.ts). This means whatever serves the frontend page
-// — localhost, the LAN IP, or a Cloudflare tunnel — automatically reaches
-// the right backend with no separate URL to configure or re-share whenever
-// a tunnel restarts. VITE_BACKEND_WS_URL remains available as an explicit
-// override if ever needed.
+// Talks only to our local backend proxy (see server/index.ts), never to
+// Kalshi directly — the browser never sees Kalshi credentials. Defaults to
+// a same-origin "/ws" path, proxied to the backend by Vite (see
+// vite.config.ts), so localhost, a LAN IP, or a tunnel all just work.
 function defaultBackendWsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${window.location.host}/ws`;
@@ -19,31 +14,44 @@ const BACKEND_WS_URL =
   defaultBackendWsUrl();
 
 const RECONNECT_DELAY_MS = 2000;
-// Vite's dev-server WS proxy occasionally leaves a fresh connection stuck in
-// CONNECTING forever — no open/error/close event ever fires, so without a
-// deadline the app is stuck showing zero data until a manual page reload.
-// This forces a retry if the handshake doesn't finish in time.
+// Vite's dev-server WS proxy occasionally leaves a connection stuck in
+// CONNECTING forever with no open/error/close event — force a retry.
 const CONNECT_TIMEOUT_MS = 5000;
+// A backgrounded/locked mobile tab can silently kill the TCP connection
+// without ever firing close — readyState still reports OPEN but nothing
+// arrives again. The backend rebroadcasts at least every 10s while
+// connected (see FLIPS_REBROADCAST_MS in server/index.ts), so total
+// silence past that means the socket is a zombie: force-close it and let
+// the normal reconnect path take over.
+const STALE_THRESHOLD_MS = 25_000;
+const STALE_CHECK_INTERVAL_MS = 5_000;
 
 type Listener = {
   onMessage: (msg: ServerMessage) => void;
   onStatusChange: (connected: boolean) => void;
 };
 
-// One real WebSocket for the whole app, shared by every caller (six
-// useMarket instances plus useWallet), ref-counted via `listeners` — not one
-// per caller. Every listener gets the same broadcast stream regardless (the
-// backend doesn't scope messages per-connection), so seven independent
-// sockets was pure redundancy: seven reconnect loops instead of one, and
-// seven times the parsing work for identical data. It also meant seven
-// separate things that could be left dangling by an imperfect teardown (e.g.
-// Vite Fast Refresh recovering from a hook-shape-changed remount) instead of
-// one — a long-lived dev tab through many hot-reloads is exactly the
-// scenario where that adds up.
+// One shared WebSocket for the whole app, ref-counted via `listeners`
+// instead of one per caller.
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let lastKnownConnected = false;
+let lastMessageAt = Date.now();
 const listeners = new Set<Listener>();
+
+function checkStale() {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  if (Date.now() - lastMessageAt > STALE_THRESHOLD_MS) {
+    socket.close();
+  }
+}
+
+if (typeof document !== "undefined") {
+  setInterval(checkStale, STALE_CHECK_INTERVAL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkStale();
+  });
+}
 
 function ensureSocket() {
   if (socket) return;
@@ -51,9 +59,6 @@ function ensureSocket() {
   const ws = new WebSocket(BACKEND_WS_URL);
   socket = ws;
 
-  // If the handshake never resolves (open/error/close all silent — seen
-  // against Vite's dev WS proxy), tear this one down and let the normal
-  // onclose retry path take over instead of hanging forever.
   const connectTimeout = setTimeout(() => {
     if (ws.readyState === WebSocket.CONNECTING) ws.close();
   }, CONNECT_TIMEOUT_MS);
@@ -61,15 +66,17 @@ function ensureSocket() {
   ws.onopen = () => {
     clearTimeout(connectTimeout);
     lastKnownConnected = true;
+    lastMessageAt = Date.now();
     for (const l of listeners) l.onStatusChange(true);
   };
 
   ws.onmessage = (event) => {
+    lastMessageAt = Date.now();
     let msg: ServerMessage;
     try {
       msg = JSON.parse(event.data);
     } catch {
-      return; // ignore malformed frames
+      return;
     }
     for (const l of listeners) l.onMessage(msg);
   };
@@ -100,9 +107,6 @@ export function connectToBackend(
     reconnectTimer = null;
   }
   ensureSocket();
-  // A caller that mounts after the shared socket is already up (the common
-  // case past the very first one) needs its own current-status snapshot —
-  // the real onopen already fired for everyone else.
   onStatusChange(lastKnownConnected);
 
   return () => {
@@ -118,10 +122,6 @@ export function connectToBackend(
   };
 }
 
-// One-off commands to the backend (currently just "clear today's P&L") —
-// distinct from the listener stream above, which is read-only. No-ops
-// silently if the socket isn't open; callers only ever fire this from a
-// user click, where a missed click is fine to just retry.
 export function sendToBackend(message: unknown) {
   if (socket?.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(message));

@@ -15,14 +15,6 @@ import {
 } from "./portfolio.ts";
 import { getPnlSince, resetPnlNow } from "./pnlReset.ts";
 
-// The only job of this process: for each configured market (BTC, DOGE, ...),
-// find the live 15m Kalshi market, subscribe to Kalshi's `ticker` feed for
-// it, and forward simplified { symbol, time, yes } points (yes = YES bid,
-// in cents) to the browser over a local WebSocket, along with flip counts
-// (see flipTracker.ts), session P&L (see pnlTracker.ts), and account state
-// (see portfolio.ts — read-only, never places or modifies orders). Kalshi
-// credentials never leave this process.
-
 const wss = new WebSocketServer({ port: config.localWsPort });
 const FLIPS_REBROADCAST_MS = 10_000;
 const PORTFOLIO_POLL_MS = 5_000;
@@ -93,11 +85,6 @@ function simMessage(symbol: string, sim: SimTracker) {
   };
 }
 
-// Faster-cycling variant of the same paper-trading idea: 6c-in, 40c-out
-// instead of 95c — exits earlier for a smaller, more frequent profit. Only
-// the rolling last-30-minutes figure matters here (no session total shown),
-// since the point is a quick read on how the last half hour specifically
-// has looked, side by side with the slower 95c-exit figure.
 function sim40Message(symbol: string, sim: SimTracker) {
   const snap = sim.snapshot();
   return {
@@ -127,24 +114,13 @@ type TrackedMarket = {
   symbol: string;
   seriesTicker: string;
   active: CurrentMarket | null;
-  // The ticker that just rolled over out of `active` — fills for a window
-  // can keep trickling in briefly after the next window opens (Kalshi
-  // processes trades slightly behind the boundary), so matching needs to
-  // check this too or those trailing fills silently match nothing.
   previousTicker: string | null;
-  // The next window, pre-fetched well before it opens (Kalshi schedules a
-  // whole day's markets in advance, so its ticker is knowable ahead of
-  // time) so the feed can already be subscribed to it before the actual
-  // rollover — see prepareNextMarket/scheduleSwitch below.
   nextKnown: CurrentMarket | null;
   feed: KalshiFeed;
   flips: FlipTracker;
   pnl: PnlTracker;
   sim: SimTracker;
   sim40: SimTracker;
-  // Live unrealized position in `active`, from the private market_positions
-  // push — null whenever flat. Cleared on every market switch since it's
-  // scoped to one ticker, not carried across windows.
   position: OpenPosition | null;
 };
 
@@ -153,7 +129,7 @@ type OpenPosition = { positionFp: number; costDollars: number };
 const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTicker }) => {
   const flips = new FlipTracker();
   const sim = new SimTracker();
-  const sim40 = new SimTracker(6, 40, 5, 30 * 60);
+  const sim40 = new SimTracker(6, 40, 1, 30 * 60);
   const feed = new KalshiFeed(({ yes }) => {
     broadcast({
       type: "price",
@@ -186,12 +162,6 @@ const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTick
   };
 });
 
-// Real (not simulated) daily P&L, cleared on demand from the UI — see
-// pnlReset.ts. Moves the "since" cutoff to now (persisted, survives a
-// restart) and zeroes every market's in-memory session total immediately so
-// the UI reflects $0 without needing a server restart, which would also
-// wipe unrelated in-memory state (paper-sim totals, flip counts) that
-// wasn't asked to be cleared.
 function resetTodaysPnl() {
   resetPnlNow();
   for (const market of trackedMarkets) {
@@ -201,8 +171,6 @@ function resetTodaysPnl() {
   console.log("[pnl] reset for the day");
 }
 
-// Paper-trading sim totals — separate from the real P&L reset above (see its
-// comment): only clears when explicitly asked for, not bundled by default.
 function resetTodaysSim() {
   for (const market of trackedMarkets) {
     market.sim.reset();
@@ -255,10 +223,6 @@ function applyMarketSwitch(market: TrackedMarket, found: CurrentMarket) {
   market.previousTicker = closingTicker ?? null;
   market.active = found;
   market.position = null;
-  // Already subscribed (see prepareNextMarket) in the normal case — this is
-  // a no-op then. Only actually opens a fresh subscription on the fallback
-  // path (verifySwitch / the safety-net poll finding a switch we didn't see
-  // coming).
   market.feed.promote(found.ticker);
   market.flips.onMarketChange(found.ticker);
   market.sim.onMarketChange(found.ticker);
@@ -274,15 +238,8 @@ function applyMarketSwitch(market: TrackedMarket, found: CurrentMarket) {
   }
 }
 
-// Kalshi pre-creates a whole day's worth of windows in advance (confirmed
-// live via the API: the next several hours of a series' markets already
-// exist under status=unopened well before their own open_time) — so instead
-// of discovering the next ticker only after the current one has already
-// closed (which is what used to cause rollover lag/gaps), fetch it well
-// ahead of time and pre-subscribe the feed to it. The actual switch then
-// just flips which already-flowing subscription is "active", anchored
-// precisely to the known close time — no REST round-trip sits on the
-// critical path at the moment of rollover.
+// Kalshi pre-creates a day's worth of windows in advance, so the next one
+// is fetched and pre-subscribed ahead of the actual rollover.
 async function prepareNextMarket(market: TrackedMarket) {
   if (!market.active) return;
   try {
@@ -299,23 +256,12 @@ async function prepareNextMarket(market: TrackedMarket) {
   }
 }
 
-// Small buffer past the exact close boundary — cheap insurance against
-// minor clock skew between this process and Kalshi's, not a wait for
-// anything to happen.
 const SWITCH_EPSILON_MS = 250;
-// A pre-fetched schedule could in principle be wrong (e.g. an early close
-// via can_close_early) — re-verify against Kalshi's own data shortly after
-// every switch as a safety net, without that check ever sitting on the
-// critical path of the switch itself.
 const SWITCH_VERIFY_DELAY_MS = 2_000;
 
 function scheduleSwitch(market: TrackedMarket, closeTimeMs: number) {
   const delay = Math.max(0, closeTimeMs - Date.now() + SWITCH_EPSILON_MS);
   setTimeout(() => {
-    // Something else already moved this market on (e.g. the safety-net
-    // poll beat us to it) — nothing left to do here. Multiple scheduled
-    // switches for the same market can stack up harmlessly this way; only
-    // the first to fire ever actually applies.
     if (market.active?.closeTime !== closeTimeMs) return;
 
     const next = market.nextKnown;
@@ -324,8 +270,6 @@ function scheduleSwitch(market: TrackedMarket, closeTimeMs: number) {
       prepareNextMarket(market);
       setTimeout(() => verifySwitch(market), SWITCH_VERIFY_DELAY_MS);
     } else {
-      // Didn't have a next market lined up in time (shouldn't normally
-      // happen) — fall back to a real-time lookup.
       verifySwitch(market);
     }
   }, delay);
@@ -353,9 +297,6 @@ async function pollForCurrentMarket(market: TrackedMarket) {
     if (found.ticker !== market.active?.ticker) {
       applyMarketSwitch(market, found);
     }
-    // Only (re)fetch/schedule if nothing is lined up yet — the normal path
-    // already keeps this chain going via applyMarketSwitch -> prepareNextMarket
-    // above; this is purely a safety net for a chain that somehow broke.
     if (!market.nextKnown) prepareNextMarket(market);
   } catch (err) {
     console.error(`[market-poll] ${market.symbol} lookup failed:`, (err as Error).message);
@@ -367,9 +308,6 @@ for (const market of trackedMarkets) {
   setInterval(() => pollForCurrentMarket(market), config.marketPollIntervalMs);
 }
 
-// Flip counts can go stale with no new events (the "last hour" window
-// keeps sliding forward even when nothing new happens) — rebroadcast
-// periodically so the UI count doesn't lag reality.
 setInterval(() => {
   for (const market of trackedMarkets) {
     broadcast(flipsMessage(market.symbol, market.flips));
@@ -389,8 +327,6 @@ async function pollPortfolio() {
   }
 }
 
-// Kalshi posts a window's settlement a few seconds after it closes, not
-// instantly — retry with backoff rather than giving up on the first miss.
 const SETTLEMENT_RETRY_MS = 4_000;
 const SETTLEMENT_MAX_ATTEMPTS = 6;
 
@@ -415,10 +351,6 @@ async function settleClosedWindow(market: TrackedMarket, ticker: string, attempt
 pollPortfolio();
 setInterval(pollPortfolio, PORTFOLIO_POLL_MS);
 
-// Seed each market's session P&L from everything already settled since the
-// current reset point (normally UTC midnight, movable via pnlReset.ts), so
-// a process restart (e.g. every `tsx watch` reload) doesn't reset the
-// on-screen total back to zero — see fetchTodaysRealizedPnlBySeries.
 async function seedTodaysPnl() {
   try {
     const since = getPnlSince();
@@ -437,13 +369,6 @@ async function seedTodaysPnl() {
 }
 seedTodaysPnl();
 
-// Fills push instantly over Kalshi's private `fill` channel — this drives
-// both the resting/holding badge (optimistic update here, corrected by the
-// next pollPortfolio() shortly after regardless) and the buy-in/win sounds
-// directly off the fill's own client_order_id-derived intent (see
-// kalshiFills.ts — NOT Kalshi's "buy"/"sell" action field, which doesn't
-// reliably distinguish entry from exit), not off polled state or a
-// settlement lookup that can lag minutes behind the actual trade.
 const fillsFeed = new KalshiFillsFeed(
   ({ ticker, intent, side, priceCents }) => {
     const market = trackedMarkets.find(
@@ -465,9 +390,6 @@ const fillsFeed = new KalshiFillsFeed(
     }
   },
   (update: PositionUpdate) => {
-    // Only the currently active ticker's position is worth showing —
-    // there's no live price left to mark a just-closed window's leftover
-    // position against.
     const market = trackedMarkets.find((m) => m.active?.ticker === update.ticker);
     if (!market) return;
     market.position =

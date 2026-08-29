@@ -62,12 +62,8 @@ type Settlement = {
   settled_time: string;
 };
 
-// Realized P&L for one settled ticker, computed from the actual settlement
-// outcome. Each held contract pays out $1 if its side matches
-// `market_result`, $0 otherwise — this covers a position held to expiry on
-// just one side (no sell before close) as well as a position that ended up
-// holding both sides. A held contract that wins is a real profit, not a
-// loss, regardless of whether it was ever sold before the window closed.
+// Realized P&L for one settled ticker: each held contract pays out $1 if
+// its side matches market_result, $0 otherwise.
 function realizedPnlFromSettlement(s: Settlement): number {
   const yesCount = parseFloat(s.yes_count_fp);
   const noCount = parseFloat(s.no_count_fp);
@@ -94,13 +90,10 @@ function seriesTickerOf(ticker: string): string {
   return m ? m[1] : ticker;
 }
 
-// Session P&L is in-memory only and resets to 0 whenever this process
-// restarts (including on every `tsx watch` reload). Called once at startup
-// to seed each tracked market's PnlTracker from everything settled since
-// `since` (normally UTC midnight, but movable — see pnlReset.ts), so a
-// restart doesn't just wipe the on-screen total back to zero. Settlements
-// come back newest-first, so this stops as soon as it walks past `since`
-// rather than paging through the whole history.
+// Seeds session P&L on startup from everything settled since `since` (see
+// pnlReset.ts), so a process restart doesn't wipe the total to zero.
+// Settlements come back newest-first, so paging stops as soon as it walks
+// past `since`.
 export async function fetchTodaysRealizedPnlBySeries(since: Date): Promise<Map<string, number>> {
   const result = new Map<string, number>();
   let cursor: string | undefined;

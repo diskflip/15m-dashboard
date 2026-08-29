@@ -1,13 +1,7 @@
 // Paper-trades a configurable dip-buy/take-profit strategy against a
 // market's live price feed — session-only, no real money or orders
-// involved. Same armed/resolved shape as FlipTracker (a side touching
-// entryCents "arms" it, touching exitCents while armed resolves it), but
-// tracks a simulated $ P&L instead of just counting flips, so the dashboard
-// can show what a bot running this exact strategy *would* be making right
-// now — a live read on whether current conditions are worth running it for.
-// One market runs multiple instances side by side (see server/index.ts) to
-// compare strategy variants (e.g. a 95c exit vs. a faster-cycling 40c exit)
-// against the same live prices at once.
+// involved. A side touching entryCents arms it; touching exitCents while
+// armed resolves it as a win.
 type Side = {
   armed: boolean;
   entryCents: number | null;
@@ -29,23 +23,18 @@ export class SimTracker {
   private wins = 0;
   private losses = 0;
   private lastTrade: SimTrade | null = null;
-  // Full trade history (session-long) just to derive the rolling
-  // windowSeconds figure shown alongside the running total — trimmed of
-  // anything older than the window every time it's read, not on a timer.
+  // Trimmed to the rolling window every time snapshot() is read.
   private trades: SimTrade[] = [];
 
   constructor(
     private readonly entryCents = 6,
     private readonly exitCents = 95,
-    private readonly betDollars = 5,
-    // How far back the rolling snapshot() figure looks, in seconds.
+    private readonly betDollars = 1,
     private readonly windowSeconds = 3600,
   ) {}
 
-  // Call when the active 15m market rolls over. Anything still armed going
-  // into the rollover never reached the exit target before the window
-  // closed — same fate as a real position held to expiry without hitting
-  // its take-profit: the bet is lost.
+  // A position still armed at rollover never hit its exit — same as being
+  // held to expiry without a take-profit: the bet is lost.
   onMarketChange(ticker: string) {
     if (ticker === this.currentTicker) return;
     if (this.yes.armed) this.resolve("yes", "loss", this.yes.entryCents!);
@@ -53,8 +42,7 @@ export class SimTracker {
     this.currentTicker = ticker;
   }
 
-  // Call on every price tick (yes = YES bid, in cents). Returns true if a
-  // trade just resolved, so the caller can rebroadcast immediately.
+  // Returns true if a trade just resolved, so the caller can rebroadcast.
   onPrice(yesCents: number): boolean {
     if (!this.currentTicker) return false;
     const noCents = 100 - yesCents;
@@ -77,9 +65,6 @@ export class SimTracker {
     return resolved;
   }
 
-  // $betDollars buys betDollars/entryPrice contracts, sold at exitCents (not
-  // held to a $1 settlement — the strategy is a fixed take-profit exit, not
-  // holding to expiry). A loss is just the bet, gone.
   private resolve(side: "yes" | "no", result: "win" | "loss", entryCents: number) {
     const profitDollars =
       result === "win" ? this.betDollars * (this.exitCents / entryCents - 1) : -this.betDollars;
@@ -98,9 +83,7 @@ export class SimTracker {
     else this.no = { armed: false, entryCents: null };
   }
 
-  // Clears the session's paper-trading tally — armed positions are left
-  // alone (a dip already being tracked shouldn't just vanish), only the
-  // accumulated $ / win / loss counters and last-trade flash reset.
+  // Armed positions are left alone; only the tally resets.
   reset() {
     this.totalDollars = 0;
     this.wins = 0;

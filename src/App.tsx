@@ -5,21 +5,10 @@ import { Countdown } from "./components/Countdown";
 import { ActivityLog } from "./components/ActivityLog";
 import { useWallet } from "./hooks/useWallet";
 import { sendToBackend } from "./data/kalshi";
+import { MARKETS as ALL_MARKETS } from "../markets.config";
 import "./App.css";
 
-// GOLD, OIL don't trade on weekends (commodity markets, unlike the
-// always-on crypto ones) — hidden here rather than removed so they're a
-// one-line uncomment to bring back once they reopen.
-const MARKETS = [
-  { symbol: "BTC" },
-  { symbol: "DOGE" },
-  { symbol: "ETH" },
-  { symbol: "NEAR" },
-  { symbol: "HYPE" },
-  { symbol: "SILVER" },
-  // { symbol: "GOLD" },
-  // { symbol: "OIL" },
-];
+const MARKETS = ALL_MARKETS.filter((m) => m.enabled);
 
 function formatBalance(cents: number | null): string {
   if (cents === null) return "—";
@@ -42,30 +31,25 @@ function App() {
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(MARKETS.map((m) => [m.symbol, true]))
   );
-  // Each card reports its own P&L up here so the total can sum across
-  // every market without all of them having to live at the App level —
-  // a paused (toggled-off) market reports 0 and drops out of the total.
   const [pnlBySymbol, setPnlBySymbol] = useState<Record<string, number>>({});
   const totalPnl = Object.values(pnlBySymbol).reduce((sum, v) => sum + v, 0);
 
-  // Same idea as P&L: each card reports its own resting/holding state up
-  // here so the list can be reordered around it — see sortedMarkets below.
   const [statusBySymbol, setStatusBySymbol] = useState<
     Record<string, { resting: boolean; holding: boolean }>
   >({});
 
-  // Every 15m market rolls over on the same wall-clock boundary, so one
-  // shared countdown (fed by whichever card last reported) is exactly as
-  // accurate as showing it on each card separately. The actual 1s tick
-  // lives inside <Countdown> so it doesn't re-render the rest of the app.
-  const [closeTime, setCloseTime] = useState<number | null>(null);
+  // Soonest close time across all enabled markets, so a paused or
+  // weekend-closed market can't override the countdown with a stale value.
+  const [closeTimeBySymbol, setCloseTimeBySymbol] = useState<Record<string, number | null>>({});
+  const closeTime = Object.values(closeTimeBySymbol).reduce<number | null>(
+    (soonest, t) => (t === null ? soonest : soonest === null ? t : Math.min(soonest, t)),
+    null
+  );
 
   const handlePnlChange = useCallback((symbol: string, dollars: number) => {
     setPnlBySymbol((prev) => (prev[symbol] === dollars ? prev : { ...prev, [symbol]: dollars }));
   }, []);
 
-  // One stable reference shared by every card (instead of a fresh closure
-  // per card per render) so MarketCard's memoization actually holds.
   const handleToggle = useCallback((symbol: string) => {
     setEnabled((prev) => ({ ...prev, [symbol]: !prev[symbol] }));
   }, []);
@@ -78,16 +62,10 @@ function App() {
     });
   }, []);
 
-  const handleCloseTimeChange = useCallback((time: number | null) => {
-    setCloseTime((prev) => (prev === time ? prev : time));
+  const handleCloseTimeChange = useCallback((symbol: string, time: number | null) => {
+    setCloseTimeBySymbol((prev) => (prev[symbol] === time ? prev : { ...prev, [symbol]: time }));
   }, []);
 
-  // Ordered by P&L, except a market you're actually holding a position in
-  // floats to the very top regardless of P&L, and anything paused off
-  // drops to the bottom — a resting (unfilled) order doesn't move the list
-  // on its own, only a real fill does. Ties broken by each market's fixed
-  // position in MARKETS so cards don't jitter against each other while
-  // sitting at the same value.
   function priority(symbol: string): number {
     if (!enabled[symbol]) return 2;
     if (statusBySymbol[symbol]?.holding) return 0;

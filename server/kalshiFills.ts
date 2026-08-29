@@ -5,21 +5,11 @@ import { config } from "./config.ts";
 const WS_PATH = "/trade-api/ws/v2";
 const RECONNECT_DELAY_MS = 3000;
 
-// `intent` is only present for real `fill` messages (a genuine trade).
-// Confirmed against live fill payloads: Kalshi's own `action` field ("buy"/
-// "sell") does NOT reliably say entry vs. exit — "sell yes at 94c" is the
-// same trade as "buy no at 6c", so an entry into NO can show action:"sell"
-// and an exit out of NO (sold back at 85c) can show action:"buy" of yes.
-// The reliable signal is this bot's own `client_order_id`, which always
-// encodes its intent: an entry order id looks like
-// "scalpyes-<ticker>-yes-t0600-..." / "scalpno-...-no-t0600-...", an exit
-// order id looks like "scalpexyes1-<ticker>-yes-95-...-e0600" /
-// "scalpexno1-...-no-85-...-e0600" — the "ex" is what marks it as a close.
-// `market_positions` messages carry no order id at all, so it's left
-// undefined for those. `side`/`priceCents` describe the fill itself (which
-// side was purchased, and its price in the app's usual 0-100 cents
-// convention) — carried through so a consumer can show/log exactly what
-// traded, not just that "something" did.
+// Kalshi's own `action` field ("buy"/"sell") doesn't reliably distinguish
+// entry from exit — a sell of yes and a buy of no can be the same trade.
+// Intent instead comes from this bot's own client_order_id convention:
+// entries look like "scalpyes-<ticker>-yes-t0600-...", exits look like
+// "scalpexyes1-<ticker>-yes-95-...-e0600".
 export type FillEvent = {
   ticker: string;
   intent?: "entry" | "exit";
@@ -27,11 +17,6 @@ export type FillEvent = {
   priceCents?: number;
 };
 
-// Pushed on the `market_positions` channel whenever a fill changes a
-// ticker's net position — `positionFp` is signed (positive = net YES
-// contracts held, negative = net NO), `costDollars` is total cost paid for
-// that position. Enough to derive unrealized P&L against a live price
-// without waiting for settlement.
 export type PositionUpdate = { ticker: string; positionFp: number; costDollars: number };
 
 function intentFromClientOrderId(clientOrderId: unknown): "entry" | "exit" | undefined {
@@ -41,19 +26,9 @@ function intentFromClientOrderId(clientOrderId: unknown): "entry" | "exit" | und
   return undefined;
 }
 
-// Strips the random per-order suffix out of a client_order_id, leaving a
-// key that's stable across every order the bot places for the same
-// logical action (one window, one side, one entry-or-exit attempt).
-// Confirmed against live fills: a single "try to buy in at 6c" attempt can
-// span *two different order_ids* seconds apart (the resting order gets
-// replaced/re-rested when it doesn't fully fill right away), e.g.
-// ".../yes-t0600-ddaf81cd" and ".../yes-t0600-15762ffa" for the same
-// window+side within 2 seconds — deduping on raw order_id missed this
-// because they're genuinely different orders. The random part is always
-// exactly 8 lowercase hex chars, but its position differs between entry
-// ids (trailing) and exit ids (mid-string, followed by a fixed "e0600"),
-// so this filters out any 8-hex-char segment wherever it falls rather than
-// assuming a fixed position.
+// Strips the random 8-hex-char per-order suffix from a client_order_id, so
+// the same logical entry/exit attempt (which can span multiple partial
+// fills across different order ids) collapses to one key.
 function stableActionKey(clientOrderId: string): string {
   return clientOrderId
     .split("-")
@@ -61,34 +36,16 @@ function stableActionKey(clientOrderId: string): string {
     .join("-");
 }
 
-// A single account-wide authenticated connection to Kalshi's private `fill`
-// and `market_positions` channels — both push the instant something
-// happens, so "order just filled" doesn't have to wait on the next
-// portfolio poll (up to 5s away, per PORTFOLIO_POLL_MS in index.ts).
-//
-// Checked directly against Kalshi's WS API: there is no push channel for
-// resting orders — "order", "orders", "order_update", "resting_order" all
-// come back "Unknown channel name". Only `fill` and `market_positions`
-// exist as private channels, so resting-order detection is stuck on the
-// REST poll; holding/position detection does not have to be.
-//
-// Separate from KalshiFeed (which is per-market and only subscribes to the
-// public `ticker` channel): these aren't scoped to one market, so this is
-// one connection for everything, not one per tracked market.
+// Account-wide connection to Kalshi's private `fill` and `market_positions`
+// channels — both push instantly, faster than the portfolio poll.
 export class KalshiFillsFeed {
   private ws: WebSocket | null = null;
   private nextId = 1;
   private onSignal: (event: FillEvent) => void;
   private onPosition: (update: PositionUpdate) => void;
   private closedByCaller = false;
-  // One logical entry/exit attempt (one window, one side) commonly spans
-  // several partial fills — and sometimes several different order_ids, when
-  // a resting order gets replaced — within a couple seconds. All of that is
-  // the same action from the trader's point of view, not a new one each
-  // time. Only the first fill seen for a given stableActionKey fires a
-  // signal (and therefore a sound); the key is scoped to one window+side so
-  // it naturally stops mattering once that window closes — fine to just
-  // keep growing for the life of the process at real trading volumes.
+  // Only the first fill for a given stableActionKey signals — later partial
+  // fills for the same attempt don't re-trigger.
   private seenActionKeys = new Set<string>();
 
   constructor(onSignal: (event: FillEvent) => void, onPosition: (update: PositionUpdate) => void) {
@@ -150,18 +107,12 @@ export class KalshiFillsFeed {
       return;
     }
     if (msg.type !== "fill" && msg.type !== "market_position" && msg.type !== "market_positions") {
-      // Logged so an unexpected type name is visible instead of silently
-      // dropped — this is exactly how the real `fill` field names got
-      // confirmed earlier.
       console.log("[kalshi-fills-ws] unhandled message type:", raw);
       return;
     }
 
     console.log("[kalshi-fills-ws] signal received:", raw);
 
-    // Same field the public `ticker` channel uses (see kalshiSocket.ts) —
-    // tried defensively across a few plausible names since this is the
-    // first real market_position payload we've seen.
     const ticker = msg.msg?.market_ticker ?? msg.msg?.ticker;
     if (typeof ticker !== "string") {
       console.warn("[kalshi-fills-ws] message missing ticker:", raw);
@@ -181,7 +132,7 @@ export class KalshiFillsFeed {
     if (intent !== undefined && typeof clientOrderId === "string") {
       const key = stableActionKey(clientOrderId);
       if (this.seenActionKeys.has(key)) {
-        intent = undefined; // already signaled this window+side attempt
+        intent = undefined;
       } else {
         this.seenActionKeys.add(key);
       }

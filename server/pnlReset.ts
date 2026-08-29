@@ -8,11 +8,9 @@ function startOfUtcDay(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
-// The on-screen daily P&L total is normally "everything settled since UTC
-// midnight" — this lets that starting point move forward on demand (e.g.
-// "start fresh for the rest of today"), persisted to disk so it survives a
-// process restart (tsx watch reloads constantly during dev, and the total
-// is reseeded from this cutoff every time — see index.ts's seedTodaysPnl).
+// The daily P&L total is "everything settled since this cutoff", normally
+// UTC midnight. resetPnlNow() moves it forward on demand; persisted to disk
+// so it survives a process restart — see index.ts's seedTodaysPnl.
 export function getPnlSince(): Date {
   try {
     const { since } = JSON.parse(fs.readFileSync(RESET_FILE, "utf8"));

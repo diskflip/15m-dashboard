@@ -10,15 +10,8 @@ function urgencyClass(remainingSeconds: number | null): string {
   return "";
 }
 
-// Isolates the 1-second tick to this one small leaf component. It used to
-// live directly in App() via useCountdown(closeTime) there, which meant
-// every tick re-rendered the entire app — all six chart cards (each
-// rebuilding SVG paths over up to thousands of history points) plus their
-// framer-motion layout wrappers (each doing a getBoundingClientRect
-// measurement pass) — once a second, forever, for as long as the tab stayed
-// open. That's a real, continuous, unbounded cost with nothing to do with
-// the actual countdown text, and a very plausible cause of a tab
-// progressively bogging down/crashing after sustained use.
+// Isolates the 1-second tick to this one small leaf component so it doesn't
+// re-render the rest of the app every second.
 export function Countdown({ closeTime }: { closeTime: number | null }) {
   const { text, remainingSeconds } = useCountdown(closeTime);
   return <span className={`app-countdown ${urgencyClass(remainingSeconds)}`}>{text}</span>;

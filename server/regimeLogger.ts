@@ -1,22 +1,6 @@
-// Forward data logger for the entry-regime backtest (see
-// scripts/PAINTED_AREA_FINDINGS.md). Purely additive: subscribes to public/
-// private read channels and appends JSONL rows to disk. Never places,
-// cancels, or modifies an order — safe to run alongside (or instead of) the
-// existing dashboard server with zero effect on live trading.
-//
-// Run standalone: `npx tsx server/regimeLogger.ts`
-//
-// What gets logged, one JSON object per line in logs/regime-YYYY-MM-DD.jsonl:
-//   {type: "market", ts, ticker, strike, strikeType, openTime, closeTime}
-//   {type: "kalshi_tick", ts, ticker, yesBidCents}
-//   {type: "btc_tick", ts, price}              // Kraken BTC/USD trade prints
-//   {type: "order_placed", ts, ticker, clientOrderId, side, priceCents}
-//   {type: "fill", ts, ticker, clientOrderId, side, priceCents, countFp, isTaker}
-//
-// This closes the exact gap the backtest ran into: Kalshi's own history only
-// gives 1-minute YES candles and its public trades endpoint is too dense to
-// page through cheaply for a wide backtest window — logging every real tick
-// as it happens sidesteps both problems for whatever period this runs.
+// Standalone tick-level data logger for backtesting — read-only, never
+// places or modifies an order. Run with `npx tsx server/regimeLogger.ts`,
+// appends JSONL rows to logs/regime-YYYY-MM-DD.jsonl.
 import { appendFileSync, mkdirSync } from "node:fs";
 import WebSocket from "ws";
 import { signRequest } from "./kalshiAuth.ts";
@@ -77,8 +61,6 @@ async function pollMarketRollover() {
       activeTicker = found.ticker;
       activeMarket = found;
       (globalThis as any).__kalshiTickerSubscribe?.(found.ticker);
-      // Strike/open/close come from the same metadata the app already
-      // reads elsewhere — fetch once per rollover, not per tick.
       const meta = await fetch(`${config.restBaseUrl}/trade-api/v2/markets?tickers=${found.ticker}`).then((r) => r.json());
       const m = meta.markets?.[0];
       logRow({
@@ -151,8 +133,7 @@ function connectKalshiFills() {
   ws.on("error", (e) => console.error("[regime-logger] kalshi fills ws error:", e.message));
 }
 
-// ---- Order placements: no push channel exists for this (confirmed in
-// kalshiFills.ts), so poll portfolio/orders and log anything new. ----
+// ---- Order placements: no push channel exists, so poll and log anything new ----
 const seenOrderIds = new Set<string>();
 async function pollNewOrders() {
   try {
@@ -171,8 +152,6 @@ async function pollNewOrders() {
         priceCents: Math.round(parseFloat(o.side === "no" ? o.no_price_dollars : o.yes_price_dollars) * 100),
       });
     }
-    // Bound memory: this only needs to catch orders newer than the last
-    // poll, so drop ids that can no longer show up in a 50-row page.
     if (seenOrderIds.size > 5000) seenOrderIds.clear();
   } catch (e: any) {
     console.error("[regime-logger] order poll failed:", e.message);

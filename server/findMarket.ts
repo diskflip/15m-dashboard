@@ -48,9 +48,6 @@ async function fetchMarkets(
   }));
 }
 
-// Finds the currently trading 15-minute market for a given series: among
-// open markets in that series, the one whose window contains "now", closing
-// soonest.
 export async function findCurrentMarket(
   seriesTicker: string
 ): Promise<CurrentMarket | null> {
@@ -61,14 +58,8 @@ export async function findCurrentMarket(
   return candidates[0] ?? null;
 }
 
-// Finds the market that will open soonest at or after `afterMs` — normally
-// the very next 15m window right after the currently active one closes.
-// Kalshi pre-creates a whole day's worth of windows ahead of time (confirmed
-// live: the next several hours of a series' markets already exist under
-// status=unopened well before their own open_time), so this is knowable well
-// in advance of the actual rollover — see kalshiSocket.ts's pre-subscribe,
-// which relies on that to eliminate rollover latency instead of discovering
-// the new ticker only after the old one has already closed.
+// Kalshi pre-creates a day's worth of windows in advance, so the next one
+// is knowable before the current window closes.
 export async function findNextMarket(
   seriesTicker: string,
   afterMs: number
