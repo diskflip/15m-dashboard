@@ -35,7 +35,6 @@ type MarketCardProps = {
   onToggle: (symbol: string) => void;
   onPnlChange: (symbol: string, dollars: number) => void;
   onCloseTimeChange: (symbol: string, time: number | null) => void;
-  onStatusChange: (symbol: string, resting: boolean, holding: boolean) => void;
 };
 
 // One market's live status: an identity row over a collapsible chart. Owns
@@ -47,7 +46,6 @@ export const MarketCard = memo(function MarketCard({
   onToggle,
   onPnlChange,
   onCloseTimeChange,
-  onStatusChange,
 }: MarketCardProps) {
   const [winning, setWinning] = useState(false);
   const [simWinning, setSimWinning] = useState(false);
@@ -88,10 +86,6 @@ export const MarketCard = memo(function MarketCard({
   useEffect(() => {
     onPnlChange(symbol, pnlDollars);
   }, [symbol, pnlDollars, onPnlChange]);
-
-  useEffect(() => {
-    onStatusChange(symbol, resting, holding);
-  }, [symbol, resting, holding, onStatusChange]);
 
   useEffect(() => {
     if (winFlash === null) return;

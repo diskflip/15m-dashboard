@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "dotenv": "^17.4.2",
-    "framer-motion": "^13.1.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "ws": "^8.21.3"
