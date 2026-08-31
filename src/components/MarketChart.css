@@ -8,9 +8,29 @@
 .chart-plot {
   position: relative;
   height: 320px;
-  border-radius: 8px;
+  border-radius: 3px;
   background: rgba(255, 255, 255, 0.03);
   overflow: hidden;
+  /* A press-and-drag finger reads the hover point (see MarketChart.tsx's
+     touch handlers) instead of scrolling the page out from under it. */
+  touch-action: none;
+}
+
+/* Horizontal (mobile) orientation is a traditional wide-and-short
+   price-over-time chart, not the tall column the vertical/desktop layout
+   uses — tall enough to actually fill an opened card, not just a sliver. */
+.chart--horizontal .chart-plot {
+  height: 220px;
+}
+
+/* Matches market-bar's mobile side padding (see MarketCard.css) so the
+   plot still bleeds flush to the card's edge; top padding trimmed since
+   the plot itself does the filling now, not the space around it. */
+@media (max-width: 899px) {
+  .chart {
+    padding: 2px 0 0;
+    margin: 0 -16px;
+  }
 }
 
 /* Desktop's cards now stretch to fill the row's full height (see
@@ -67,27 +87,34 @@
   transform: translate(-50%, -50%);
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
   pointer-events: none;
-  /* Glides to each new price instead of snapping — duration sits just
-     under useMarket.ts's 200ms commit interval so it settles before the
-     next update lands rather than fighting a half-finished transition. */
+  /* Glides to each new price instead of snapping. */
   transition: top 0.18s ease-out, left 0.18s ease-out;
 }
 
 .chart-current-label {
   position: absolute;
-  /* Centered under the dot instead of off to its side — with the axes
-     flipped (YES on the left), a label offset to the right would sit over
-     the live edge of the line/fill instead of clear of it. */
+  /* Vertical orientation: centered under the dot instead of off to its
+     side — with the axes flipped (YES on the left), a label offset to the
+     right would sit over the live edge of the line/fill instead of clear
+     of it. */
   transform: translate(-50%, 9px);
   font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   background: rgba(16, 19, 23, 0.85);
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: 3px;
   white-space: nowrap;
   pointer-events: none;
   transition: top 0.18s ease-out, left 0.18s ease-out;
+}
+
+/* Horizontal orientation: the live dot sits a bit shy of the right edge
+   (see MARGIN_TIME_END_HORIZONTAL in MarketChart.tsx) specifically to
+   reserve room there — float the label into that space to the dot's
+   right, vertically centered, instead of below it. */
+.chart--horizontal .chart-current-label {
+  transform: translate(9px, -50%);
 }
 
 .chart-hover-line {
@@ -106,15 +133,18 @@
   pointer-events: none;
 }
 
+/* Positioned by one of the four align-{left,right}/align-{above,below}
+   combinations below — align-above (the default direction) can clip
+   against chart-plot's overflow:hidden when the point sits too close to
+   the top edge, so MarketChart.tsx flips to align-below in that case. */
 .chart-hover-tooltip {
   position: absolute;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  transform: translate(-50%, -100%) translateY(-10px);
   background: rgba(16, 19, 23, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 5px;
+  border-radius: 3px;
   padding: 3px 6px;
   font-size: 10px;
   font-weight: 700;
@@ -124,12 +154,20 @@
   z-index: 1;
 }
 
-.chart-hover-tooltip.align-left {
+.chart-hover-tooltip.align-left.align-above {
   transform: translate(0, -100%) translateY(-10px);
 }
 
-.chart-hover-tooltip.align-right {
+.chart-hover-tooltip.align-right.align-above {
   transform: translate(-100%, -100%) translateY(-10px);
+}
+
+.chart-hover-tooltip.align-left.align-below {
+  transform: translateY(10px);
+}
+
+.chart-hover-tooltip.align-right.align-below {
+  transform: translate(-100%, 0) translateY(10px);
 }
 
 .chart-hover-time {
@@ -166,7 +204,7 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   padding: 2px 7px;
-  border-radius: 5px;
+  border-radius: 3px;
   color: rgba(255, 255, 255, 0.6);
   background: rgba(255, 255, 255, 0.06);
 }
@@ -193,7 +231,7 @@
   color: rgba(255, 255, 255, 0.35);
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 3px;
   padding: 2px 5px;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;

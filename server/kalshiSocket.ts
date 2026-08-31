@@ -63,6 +63,14 @@ export class KalshiFeed {
     if (this.subscribedTickers.size > PRUNE_THRESHOLD) this.prune();
   }
 
+  // Call when a series has no current or upcoming window (e.g. a
+  // weekend-closed market) so late ticks for the last, now-closed ticker —
+  // its price often swings hard as the outcome settles — stop being
+  // forwarded as if they were live trading data.
+  pause() {
+    this.activeTicker = null;
+  }
+
   private prune() {
     const keep = this.activeTicker ? [this.activeTicker] : [];
     this.subscribedTickers = new Set();

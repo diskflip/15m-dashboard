@@ -13,7 +13,7 @@ export const MARKETS: Market[] = [
   { symbol: "DOGE", seriesTicker: "KXDOGE15M", enabled: true },
   { symbol: "HYPE", seriesTicker: "KXHYPE15M", enabled: true },
   { symbol: "NEAR", seriesTicker: "KXNEAR15M", enabled: true },
-  { symbol: "SOL", seriesTicker: "KXSOL15M", enabled: true },
+  { symbol: "SILVER", seriesTicker: "KXSILVER15M", enabled: true },
   // GOLD and OIL don't trade on weekends.
   { symbol: "GOLD", seriesTicker: "KXGOLD15M", enabled: false },
   { symbol: "OIL", seriesTicker: "KXWTI15M", enabled: false },

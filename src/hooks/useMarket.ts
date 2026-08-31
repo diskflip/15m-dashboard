@@ -12,18 +12,16 @@ export type MarketState = {
   resting: boolean;
   holding: boolean;
   pnlDollars: number;
-  // Paper-trading simulation totals — see server/simTracker.ts.
-  simDollars: number;
-  simLastHourDollars: number;
-  simWins: number;
-  simLosses: number;
-  simFlash: { time: number; result: "win" | "loss" } | null;
-  // Faster-cycling paper-trading variant (6c-in, 40c-out) — only a rolling
-  // last-30-min figure, no session total.
-  sim40Dollars: number;
-  sim40Wins: number;
-  sim40Losses: number;
-  sim40Flash: { time: number; result: "win" | "loss" } | null;
+  // Paper-trading simulation — see server/simTracker.ts. Both run the same
+  // 6c-in/50c-out strategy; only the rolling window differs.
+  sim1hDollars: number;
+  sim1hWins: number;
+  sim1hLosses: number;
+  sim1hFlash: { time: number; result: "win" | "loss" } | null;
+  sim30mDollars: number;
+  sim30mWins: number;
+  sim30mLosses: number;
+  sim30mFlash: { time: number; result: "win" | "loss" } | null;
   // Signed: positive = net YES contracts, negative = net NO. Both 0 when flat.
   positionFp: number;
   costDollars: number;
@@ -48,15 +46,14 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
   const [resting, setResting] = useState(false);
   const [holding, setHolding] = useState(false);
   const [pnlDollars, setPnlDollars] = useState(0);
-  const [simDollars, setSimDollars] = useState(0);
-  const [simLastHourDollars, setSimLastHourDollars] = useState(0);
-  const [simWins, setSimWins] = useState(0);
-  const [simLosses, setSimLosses] = useState(0);
-  const [simFlash, setSimFlash] = useState<{ time: number; result: "win" | "loss" } | null>(null);
-  const [sim40Dollars, setSim40Dollars] = useState(0);
-  const [sim40Wins, setSim40Wins] = useState(0);
-  const [sim40Losses, setSim40Losses] = useState(0);
-  const [sim40Flash, setSim40Flash] = useState<{ time: number; result: "win" | "loss" } | null>(null);
+  const [sim1hDollars, setSim1hDollars] = useState(0);
+  const [sim1hWins, setSim1hWins] = useState(0);
+  const [sim1hLosses, setSim1hLosses] = useState(0);
+  const [sim1hFlash, setSim1hFlash] = useState<{ time: number; result: "win" | "loss" } | null>(null);
+  const [sim30mDollars, setSim30mDollars] = useState(0);
+  const [sim30mWins, setSim30mWins] = useState(0);
+  const [sim30mLosses, setSim30mLosses] = useState(0);
+  const [sim30mFlash, setSim30mFlash] = useState<{ time: number; result: "win" | "loss" } | null>(null);
   const [positionFp, setPositionFp] = useState(0);
   const [costDollars, setCostDollars] = useState(0);
   const [winFlash, setWinFlash] = useState<number | null>(null);
@@ -64,15 +61,21 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
   const [spotPriceDollars, setSpotPriceDollars] = useState<number | null>(null);
 
   const currentTickerRef = useRef<string | null>(null);
-  const lastYesRef = useRef<number | null>(null);
-  // A "sim" message replays the tracker's full snapshot on every reconnect,
+  // Ticker is captured when the price arrives, not read fresh off
+  // currentTickerRef at commit time — a market switch can land between a
+  // ticker's last real price tick and the next 50ms commit, and re-tagging
+  // that stale, pre-switch price with the new ticker would splice it into
+  // the new market's line segment instead of the old one, drawing a
+  // spurious connecting line across the rollover instead of a clean break.
+  const lastPriceRef = useRef<{ yes: number; ticker: string | null } | null>(null);
+  // A sim message replays the tracker's full snapshot on every reconnect,
   // so dedupe against the last-seen trade time before flashing.
-  const lastSimTradeTimeRef = useRef<number | null>(null);
-  const lastSim40TradeTimeRef = useRef<number | null>(null);
+  const lastSim1hTradeTimeRef = useRef<number | null>(null);
+  const lastSim30mTradeTimeRef = useRef<number | null>(null);
 
   // Rolling 30-minute chart lookback, kept across a 15m rollover — only a
   // pause or page reload clears it.
-  const COMMIT_INTERVAL_MS = 50;
+  const COMMIT_INTERVAL_MS = 16;
   const HISTORY_WINDOW_MS = 30 * 60 * 1000;
 
   useEffect(() => {
@@ -87,33 +90,32 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
       setResting(false);
       setHolding(false);
       setPnlDollars(0);
-      setSimDollars(0);
-      setSimLastHourDollars(0);
-      setSimWins(0);
-      setSimLosses(0);
-      setSimFlash(null);
-      setSim40Dollars(0);
-      setSim40Wins(0);
-      setSim40Losses(0);
-      setSim40Flash(null);
+      setSim1hDollars(0);
+      setSim1hWins(0);
+      setSim1hLosses(0);
+      setSim1hFlash(null);
+      setSim30mDollars(0);
+      setSim30mWins(0);
+      setSim30mLosses(0);
+      setSim30mFlash(null);
       setPositionFp(0);
       setCostDollars(0);
       setWinFlash(null);
       setBuyInFlash(null);
       setSpotPriceDollars(null);
       currentTickerRef.current = null;
-      lastYesRef.current = null;
-      lastSimTradeTimeRef.current = null;
-      lastSim40TradeTimeRef.current = null;
+      lastPriceRef.current = null;
+      lastSim1hTradeTimeRef.current = null;
+      lastSim30mTradeTimeRef.current = null;
       return;
     }
 
     const commitTimer = setInterval(() => {
-      const yes = lastYesRef.current;
-      if (yes === null) return;
+      const last = lastPriceRef.current;
+      if (last === null) return;
 
       const now = Date.now();
-      const point: HistoryPoint = { time: now / 1000, yes, ticker: currentTickerRef.current };
+      const point: HistoryPoint = { time: now / 1000, yes: last.yes, ticker: last.ticker };
       const cutoff = (now - HISTORY_WINDOW_MS) / 1000;
 
       // In-place push+splice, not `[...prev, point]` — this buffer can hold
@@ -132,12 +134,12 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
     const disconnect = connectToBackend(
       (msg) => {
         if (msg.type === "market") {
-          if (msg.market.symbol !== symbol) return;
-          currentTickerRef.current = msg.market.ticker;
+          if (msg.symbol !== symbol) return;
+          currentTickerRef.current = msg.market?.ticker ?? null;
           setMarket(msg.market);
         } else if (msg.type === "price") {
           if (msg.symbol !== symbol) return;
-          lastYesRef.current = msg.point.yes;
+          lastPriceRef.current = { yes: msg.point.yes, ticker: currentTickerRef.current };
         } else if (msg.type === "flips") {
           if (msg.symbol !== symbol) return;
           setFlipsLastHour(msg.lastHour);
@@ -149,24 +151,23 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
         } else if (msg.type === "pnl") {
           if (msg.symbol !== symbol) return;
           setPnlDollars(msg.dollars);
-        } else if (msg.type === "sim") {
+        } else if (msg.type === "sim1h") {
           if (msg.symbol !== symbol) return;
-          setSimDollars(msg.totalDollars);
-          setSimLastHourDollars(msg.lastHourDollars);
-          setSimWins(msg.wins);
-          setSimLosses(msg.losses);
-          if (msg.lastTrade && msg.lastTrade.time !== lastSimTradeTimeRef.current) {
-            lastSimTradeTimeRef.current = msg.lastTrade.time;
-            setSimFlash({ time: Date.now(), result: msg.lastTrade.result });
+          setSim1hDollars(msg.dollars);
+          setSim1hWins(msg.wins);
+          setSim1hLosses(msg.losses);
+          if (msg.lastTrade && msg.lastTrade.time !== lastSim1hTradeTimeRef.current) {
+            lastSim1hTradeTimeRef.current = msg.lastTrade.time;
+            setSim1hFlash({ time: Date.now(), result: msg.lastTrade.result });
           }
-        } else if (msg.type === "sim40") {
+        } else if (msg.type === "sim30m") {
           if (msg.symbol !== symbol) return;
-          setSim40Dollars(msg.dollars);
-          setSim40Wins(msg.wins);
-          setSim40Losses(msg.losses);
-          if (msg.lastTrade && msg.lastTrade.time !== lastSim40TradeTimeRef.current) {
-            lastSim40TradeTimeRef.current = msg.lastTrade.time;
-            setSim40Flash({ time: Date.now(), result: msg.lastTrade.result });
+          setSim30mDollars(msg.dollars);
+          setSim30mWins(msg.wins);
+          setSim30mLosses(msg.losses);
+          if (msg.lastTrade && msg.lastTrade.time !== lastSim30mTradeTimeRef.current) {
+            lastSim30mTradeTimeRef.current = msg.lastTrade.time;
+            setSim30mFlash({ time: Date.now(), result: msg.lastTrade.result });
           }
         } else if (msg.type === "spot") {
           if (msg.symbol !== symbol) return;
@@ -206,15 +207,14 @@ export function useMarket(symbol: string, enabled: boolean = true): MarketState 
     resting,
     holding,
     pnlDollars,
-    simDollars,
-    simLastHourDollars,
-    simWins,
-    simLosses,
-    simFlash,
-    sim40Dollars,
-    sim40Wins,
-    sim40Losses,
-    sim40Flash,
+    sim1hDollars,
+    sim1hWins,
+    sim1hLosses,
+    sim1hFlash,
+    sim30mDollars,
+    sim30mWins,
+    sim30mLosses,
+    sim30mFlash,
     positionFp,
     costDollars,
     winFlash,

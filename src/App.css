@@ -22,6 +22,12 @@
   margin: 0 auto;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  justify-self: start;
+}
+
 .header-right {
   display: flex;
   align-items: center;
@@ -29,31 +35,21 @@
   justify-self: end;
 }
 
+/* Color is set inline (see Countdown.tsx) — it fades continuously from
+   white to a muted red over the closing window's last 5 minutes, not a
+   fixed value here. */
 .app-countdown {
   justify-self: center;
-  font-size: 17px;
+  font-size: 21px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
-  color: rgba(255, 255, 255, 0.95);
   background: #101317;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 3px 9px;
+  border-radius: 3px;
+  padding: 3px 11px;
   line-height: 1;
   transition: color 0.2s ease;
-}
-
-/* First 10 minutes of the window: neutral white (default color above). */
-
-/* Last 5 minutes. */
-.app-countdown.warn {
-  color: #ffd23f;
-}
-
-/* Last 2 minutes. */
-.app-countdown.critical {
-  color: #f0506e;
 }
 
 .pnl-value {
@@ -71,17 +67,18 @@
   color: #f0506e;
 }
 
-/* Small, quiet control next to the real P&L figure — clears today's
-   session total on click (see server pnlReset.ts). Deliberately plain
-   (no confirmation dialog) since it only moves a display baseline forward,
-   nothing destructive to the underlying settlement history. */
-.pnl-reset-btn {
+/* Small, quiet header control — shared by the fullscreen toggle (top left)
+   and the P&L reset button (top right, clears both today's real and paper
+   session totals; deliberately plain, no confirmation dialog, since it
+   only moves a display baseline forward, nothing destructive to the
+   underlying settlement history). */
+.icon-btn {
   font-size: 11px;
   line-height: 1;
   color: rgba(255, 255, 255, 0.35);
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
+  border-radius: 3px;
   width: 20px;
   height: 20px;
   display: flex;
@@ -91,12 +88,12 @@
   transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-.pnl-reset-btn:hover {
+.icon-btn:hover {
   color: rgba(255, 255, 255, 0.75);
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-.pnl-reset-btn:focus-visible {
+.icon-btn:focus-visible {
   outline: 2px solid rgba(77, 163, 255, 0.6);
   outline-offset: 1px;
 }
@@ -108,7 +105,7 @@
   color: rgba(255, 255, 255, 0.85);
   background: #101317;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border-radius: 3px;
   padding: 4px 9px;
 }
 
@@ -120,6 +117,42 @@
   width: 100%;
   max-width: 480px;
   margin: 0 auto;
+}
+
+/* Mobile only: a bit more breathing room above/below the header, and the
+   cards themselves sit a touch farther down and closer together so the
+   list fills the screen more evenly instead of one big gap up top. */
+@media (max-width: 899px) {
+  .app-header {
+    padding: 12px 16px 10px;
+  }
+
+  .market-grid {
+    gap: 10px;
+    padding: 8px 16px 24px;
+    /* Otherwise the grid only takes its natural content height, leaving a
+       dead gap below the last card down to the bottom of the screen — .app
+       is the flex column (see above) that lets this actually grow into
+       whatever's left below the header, same trick desktop's grid uses. */
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Fullscreen doesn't apply to a mobile browser tab the way it does on
+     desktop. visibility (not display: none) — the latter drops the item
+     from grid placement entirely, which shifted the countdown and reset
+     button left to fill the now-missing column instead of keeping them
+     centered against a still-reserved-but-empty first column. */
+  .header-left {
+    visibility: hidden;
+  }
+
+  /* Wallet balance and total P&L hidden on mobile for now — reset button
+     stays since it's still a control, not just a readout. */
+  .pnl-value,
+  .wallet-balance {
+    display: none;
+  }
 }
 
 /* Desktop only: all 6 markets fill one row across the available width

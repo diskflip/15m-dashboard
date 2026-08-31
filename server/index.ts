@@ -29,16 +29,20 @@ function broadcast(message: unknown) {
   }
 }
 
-function marketMessage(symbol: string, market: CurrentMarket) {
+function marketMessage(symbol: string, market: CurrentMarket | null) {
   return {
     type: "market",
-    market: {
-      symbol,
-      ticker: market.ticker,
-      title: market.title,
-      openTime: Math.floor(market.openTime / 1000),
-      closeTime: Math.floor(market.closeTime / 1000),
-    },
+    symbol,
+    market:
+      market === null
+        ? null
+        : {
+            symbol,
+            ticker: market.ticker,
+            title: market.title,
+            openTime: Math.floor(market.openTime / 1000),
+            closeTime: Math.floor(market.closeTime / 1000),
+          },
   };
 }
 
@@ -72,23 +76,12 @@ function pnlMessage(symbol: string, pnl: PnlTracker) {
   return { type: "pnl", symbol, dollars: pnl.total() };
 }
 
-function simMessage(symbol: string, sim: SimTracker) {
+// Both sim1h and sim30m run the same 6c-in/50c-out strategy — only the
+// rolling window differs — so they share one message shape.
+function simMessage(type: "sim1h" | "sim30m", symbol: string, sim: SimTracker) {
   const snap = sim.snapshot();
   return {
-    type: "sim",
-    symbol,
-    totalDollars: snap.totalDollars,
-    lastHourDollars: snap.windowDollars,
-    wins: snap.wins,
-    losses: snap.losses,
-    lastTrade: snap.lastTrade,
-  };
-}
-
-function sim40Message(symbol: string, sim: SimTracker) {
-  const snap = sim.snapshot();
-  return {
-    type: "sim40",
+    type,
     symbol,
     dollars: snap.windowDollars,
     wins: snap.wins,
@@ -119,17 +112,20 @@ type TrackedMarket = {
   feed: KalshiFeed;
   flips: FlipTracker;
   pnl: PnlTracker;
-  sim: SimTracker;
-  sim40: SimTracker;
+  sim1h: SimTracker;
+  sim30m: SimTracker;
   position: OpenPosition | null;
 };
 
 type OpenPosition = { positionFp: number; costDollars: number };
 
+const SIM_ENTRY_CENTS = 6;
+const SIM_EXIT_CENTS = 50;
+
 const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTicker }) => {
   const flips = new FlipTracker();
-  const sim = new SimTracker();
-  const sim40 = new SimTracker(6, 40, 1, 30 * 60);
+  const sim1h = new SimTracker(SIM_ENTRY_CENTS, SIM_EXIT_CENTS, 1, 3600);
+  const sim30m = new SimTracker(SIM_ENTRY_CENTS, SIM_EXIT_CENTS, 1, 30 * 60);
   const feed = new KalshiFeed(({ yes }) => {
     broadcast({
       type: "price",
@@ -139,11 +135,11 @@ const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTick
     if (flips.onPrice(yes)) {
       broadcast(flipsMessage(symbol, flips));
     }
-    if (sim.onPrice(yes)) {
-      broadcast(simMessage(symbol, sim));
+    if (sim1h.onPrice(yes)) {
+      broadcast(simMessage("sim1h", symbol, sim1h));
     }
-    if (sim40.onPrice(yes)) {
-      broadcast(sim40Message(symbol, sim40));
+    if (sim30m.onPrice(yes)) {
+      broadcast(simMessage("sim30m", symbol, sim30m));
     }
   });
   feed.start();
@@ -156,8 +152,8 @@ const trackedMarkets: TrackedMarket[] = config.markets.map(({ symbol, seriesTick
     feed,
     flips,
     pnl: new PnlTracker(),
-    sim,
-    sim40,
+    sim1h,
+    sim30m,
     position: null,
   };
 });
@@ -173,10 +169,10 @@ function resetTodaysPnl() {
 
 function resetTodaysSim() {
   for (const market of trackedMarkets) {
-    market.sim.reset();
-    market.sim40.reset();
-    broadcast(simMessage(market.symbol, market.sim));
-    broadcast(sim40Message(market.symbol, market.sim40));
+    market.sim1h.reset();
+    market.sim30m.reset();
+    broadcast(simMessage("sim1h", market.symbol, market.sim1h));
+    broadcast(simMessage("sim30m", market.symbol, market.sim30m));
   }
   console.log("[sim] reset for the day");
 }
@@ -200,8 +196,8 @@ wss.on("connection", (client) => {
     }
     client.send(JSON.stringify(flipsMessage(market.symbol, market.flips)));
     client.send(JSON.stringify(pnlMessage(market.symbol, market.pnl)));
-    client.send(JSON.stringify(simMessage(market.symbol, market.sim)));
-    client.send(JSON.stringify(sim40Message(market.symbol, market.sim40)));
+    client.send(JSON.stringify(simMessage("sim1h", market.symbol, market.sim1h)));
+    client.send(JSON.stringify(simMessage("sim30m", market.symbol, market.sim30m)));
     client.send(JSON.stringify(positionMessage(market.symbol, market.position)));
   }
   if (lastPortfolio) {
@@ -225,13 +221,13 @@ function applyMarketSwitch(market: TrackedMarket, found: CurrentMarket) {
   market.position = null;
   market.feed.promote(found.ticker);
   market.flips.onMarketChange(found.ticker);
-  market.sim.onMarketChange(found.ticker);
-  market.sim40.onMarketChange(found.ticker);
+  market.sim1h.onMarketChange(found.ticker);
+  market.sim30m.onMarketChange(found.ticker);
   if (closingTicker) settleClosedWindow(market, closingTicker);
   broadcast(marketMessage(market.symbol, found));
   broadcast(flipsMessage(market.symbol, market.flips));
-  broadcast(simMessage(market.symbol, market.sim));
-  broadcast(sim40Message(market.symbol, market.sim40));
+  broadcast(simMessage("sim1h", market.symbol, market.sim1h));
+  broadcast(simMessage("sim30m", market.symbol, market.sim30m));
   broadcast(positionMessage(market.symbol, null));
   if (lastPortfolio) {
     broadcast(orderStatusMessage(market.symbol, found.ticker, lastPortfolio));
@@ -287,11 +283,39 @@ async function verifySwitch(market: TrackedMarket) {
   }
 }
 
+// Only called once the last-known window has actually closed — a
+// still-open market's closeTime is in the future, so a null findCurrentMarket
+// result before that point is just a transient lookup hiccup, not a real
+// closure. Left unhandled, a genuinely-closed market (e.g. SILVER overnight
+// or on weekends) would otherwise: (1) keep broadcasting its last,
+// already-elapsed closeTime forever, pinning the shared header countdown at
+// 0:00 since it always wins the soonest-close comparison across enabled
+// markets, and (2) leave the price feed and paper-trading/flip trackers
+// still pointed at that dead ticker, so any late settlement tick — prices
+// often swing hard toward 0 or 100 as a market's outcome resolves — keeps
+// being read as live trading data and can register a false win with no
+// real way to have exited the position.
+function pauseMarket(market: TrackedMarket) {
+  market.active = null;
+  market.nextKnown = null;
+  market.feed.pause();
+  market.flips.onMarketChange(null);
+  market.sim1h.onMarketChange(null);
+  market.sim30m.onMarketChange(null);
+  broadcast(marketMessage(market.symbol, null));
+  broadcast(flipsMessage(market.symbol, market.flips));
+  broadcast(simMessage("sim1h", market.symbol, market.sim1h));
+  broadcast(simMessage("sim30m", market.symbol, market.sim30m));
+}
+
 async function pollForCurrentMarket(market: TrackedMarket) {
   try {
     const found = await findCurrentMarket(market.seriesTicker);
     if (!found) {
       console.warn(`[market-poll] no open ${market.symbol} 15m market found`);
+      if (market.active && market.active.closeTime <= Date.now()) {
+        pauseMarket(market);
+      }
       return;
     }
     if (found.ticker !== market.active?.ticker) {

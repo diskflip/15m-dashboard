@@ -17,32 +17,18 @@ export type MarketInfo = {
 
 // Messages sent from the local backend proxy to the browser over WebSocket.
 export type ServerMessage =
-  | { type: "market"; market: MarketInfo }
+  // market is null when the symbol has no currently open window (e.g. a
+  // weekend-closed series like GOLD/OIL/SILVER) — see server/index.ts.
+  | { type: "market"; symbol: string; market: MarketInfo | null }
   | { type: "price"; symbol: string; point: PricePoint }
   | { type: "flips"; symbol: string; lastHour: number; lastWindow: number }
   | { type: "wallet"; balanceCents: number }
   | { type: "orderStatus"; symbol: string; resting: boolean; holding: boolean }
   | { type: "pnl"; symbol: string; dollars: number }
-  // Paper-trading simulation — see server/simTracker.ts.
+  // Paper-trading simulation — see server/simTracker.ts. sim1h and sim30m
+  // run the same 6c-in/50c-out strategy, only the rolling window differs.
   | {
-      type: "sim";
-      symbol: string;
-      totalDollars: number;
-      lastHourDollars: number;
-      wins: number;
-      losses: number;
-      lastTrade: {
-        side: "yes" | "no";
-        result: "win" | "loss";
-        entryCents: number;
-        profitDollars: number;
-        time: number;
-      } | null;
-    }
-  // Faster-cycling paper-trading variant (6c-in, 40c-out) — only a rolling
-  // last-30-min figure, no session total.
-  | {
-      type: "sim40";
+      type: "sim1h" | "sim30m";
       symbol: string;
       dollars: number;
       wins: number;

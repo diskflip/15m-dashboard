@@ -18,7 +18,10 @@ export class FlipTracker {
   private previousTicker: string | null = null;
   private events: FlipEvent[] = [];
 
-  onMarketChange(ticker: string) {
+  // ticker is null when the series has no current or upcoming window (a
+  // paused/closed market) — see SimTracker.onMarketChange for why that
+  // needs to stop this tracker the same as a normal rollover would.
+  onMarketChange(ticker: string | null) {
     if (ticker === this.currentTicker) return;
     this.previousTicker = this.currentTicker;
     this.currentTicker = ticker;

@@ -1,7 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { useMarket } from "../hooks/useMarket";
 import { MarketChart } from "./MarketChart";
-import { playBuyInSound, playWinSound } from "../lib/sounds";
 import { formatPnl, pnlClass } from "../lib/format";
 import "./MarketCard.css";
 
@@ -13,15 +12,18 @@ function formatSpotPrice(dollars: number | null): string {
   return dollars === null ? "—" : `$${Math.round(dollars).toLocaleString("en-US")}`;
 }
 
-// GOLD is a PNG captured from Kalshi's market page directly; the rest come
-// from the CDN as webp except XRP/NEAR/HYPE/SOL, sourced as PNGs from
-// CoinCap's public icon CDN.
+// GOLD and SILVER's Kalshi CDN icon path didn't match what's actually
+// rendered on their market page (returned a generic ETF-ticker card
+// instead) — those two were captured directly from the page as PNGs; the
+// rest came straight from the CDN as webp. XRP/NEAR/HYPE came from
+// CoinCap's public icon CDN (assets.coincap.io) instead, since Kalshi
+// doesn't expose an icon URL through its REST API — also PNGs.
 const ICON_EXT: Record<string, string> = {
   GOLD: "png",
+  SILVER: "png",
   XRP: "png",
   NEAR: "png",
   HYPE: "png",
-  SOL: "png",
 };
 function iconSrc(symbol: string): string {
   return `/icons/${symbol}.${ICON_EXT[symbol] ?? "webp"}`;
@@ -48,10 +50,12 @@ export const MarketCard = memo(function MarketCard({
   onCloseTimeChange,
 }: MarketCardProps) {
   const [winning, setWinning] = useState(false);
-  const [simWinning, setSimWinning] = useState(false);
-  const [sim40Winning, setSim40Winning] = useState(false);
-  // Below 900px (matches App.css's desktop-grid breakpoint), charts stay
-  // hidden — collapsed bars only, so every market fits on one phone screen.
+  const [sim1hWinning, setSim1hWinning] = useState(false);
+  const [sim30mWinning, setSim30mWinning] = useState(false);
+  // Below 900px (matches App.css's desktop-grid breakpoint), cards start
+  // collapsed to bars-only instead of expanded — still tappable open to a
+  // compact horizontal chart, just not shown by default so every market
+  // fits on one phone screen at a glance.
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia("(min-width: 900px)").matches);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 900px)");
@@ -67,15 +71,14 @@ export const MarketCard = memo(function MarketCard({
     resting,
     holding,
     pnlDollars,
-    simDollars,
-    simLastHourDollars,
-    simWins,
-    simLosses,
-    simFlash,
-    sim40Dollars,
-    sim40Wins,
-    sim40Losses,
-    sim40Flash,
+    sim1hDollars,
+    sim1hWins,
+    sim1hLosses,
+    sim1hFlash,
+    sim30mDollars,
+    sim30mWins,
+    sim30mLosses,
+    sim30mFlash,
     positionFp,
     costDollars,
     winFlash,
@@ -90,7 +93,6 @@ export const MarketCard = memo(function MarketCard({
   useEffect(() => {
     if (winFlash === null) return;
     setWinning(true);
-    playWinSound();
     const t = setTimeout(() => setWinning(false), 2200);
     return () => clearTimeout(t);
   }, [winFlash]);
@@ -98,26 +100,25 @@ export const MarketCard = memo(function MarketCard({
   // Only flash on a win — losses happen far more often and would make the
   // badge flicker constantly.
   useEffect(() => {
-    if (simFlash === null || simFlash.result !== "win") return;
-    setSimWinning(true);
-    const t = setTimeout(() => setSimWinning(false), 1400);
+    if (sim1hFlash === null || sim1hFlash.result !== "win") return;
+    setSim1hWinning(true);
+    const t = setTimeout(() => setSim1hWinning(false), 1400);
     return () => clearTimeout(t);
-  }, [simFlash]);
+  }, [sim1hFlash]);
 
   useEffect(() => {
-    if (sim40Flash === null || sim40Flash.result !== "win") return;
-    setSim40Winning(true);
-    const t = setTimeout(() => setSim40Winning(false), 1400);
+    if (sim30mFlash === null || sim30mFlash.result !== "win") return;
+    setSim30mWinning(true);
+    const t = setTimeout(() => setSim30mWinning(false), 1400);
     return () => clearTimeout(t);
-  }, [sim40Flash]);
+  }, [sim30mFlash]);
 
-  // A real fill expands the chart so it's immediately visible — desktop
-  // only, mobile charts stay hidden regardless.
+  // A real fill expands the chart so it's immediately visible, on mobile
+  // too now that its chart has its own compact horizontal layout.
   useEffect(() => {
     if (buyInFlash === null) return;
-    playBuyInSound();
-    if (isDesktop) setExpanded(true);
-  }, [buyInFlash, isDesktop]);
+    setExpanded(true);
+  }, [buyInFlash]);
 
   useEffect(() => {
     onCloseTimeChange(symbol, enabled ? market?.closeTime ?? null : null);
@@ -139,25 +140,22 @@ export const MarketCard = memo(function MarketCard({
         enabled && holding ? "state-holding" : enabled && resting ? "state-resting" : ""
       } ${enabled && winning ? "win-flash" : ""}`}
       onClick={() => {
-        if (enabled && isDesktop) setExpanded((e) => !e);
+        if (enabled) setExpanded((e) => !e);
       }}
     >
       <div className="bar-row">
         <img className="market-icon" src={iconSrc(symbol)} alt="" width={28} height={28} />
-        <span className="market-symbol">{symbol}</span>
-        {enabled && (
-          <div className="bar-yesno">
-            <span className="bar-yesno-stat yes">
-              <span className="bar-yesno-label">YES</span>
-              {formatPrice(currentYes)}
-            </span>
-            <span className="bar-yesno-stat no">
-              <span className="bar-yesno-label">NO</span>
-              {formatPrice(currentNo)}
-            </span>
-          </div>
-        )}
-        {!enabled && <span className="bar-paused">Paused</span>}
+        <div className="bar-identity">
+          <span className="market-symbol">{symbol}</span>
+          {enabled && (
+            <div className="bar-yesno">
+              <span className="bar-yesno-price yes">{formatPrice(currentYes)}</span>
+              <span className="bar-yesno-slash">/</span>
+              <span className="bar-yesno-price no">{formatPrice(currentNo)}</span>
+            </div>
+          )}
+          {!enabled && <span className="bar-paused">Paused</span>}
+        </div>
         <div className="bar-row-right">
           {enabled && (resting || holding) && (
             <div className="order-badges">
@@ -187,13 +185,14 @@ export const MarketCard = memo(function MarketCard({
         </div>
       </div>
 
-      {enabled && expanded && isDesktop && (
+      {enabled && expanded && (
         <MarketChart
           symbol={symbol}
           history={history}
           currentYes={currentYes}
           market={market}
           unrealizedDollars={holding ? unrealizedDollars : null}
+          orientation={isDesktop ? "vertical" : "horizontal"}
         />
       )}
 
@@ -202,26 +201,25 @@ export const MarketCard = memo(function MarketCard({
           <span className="bar-footer-spot">
             {symbol === "BTC" ? formatSpotPrice(spotPriceDollars) : ""}
           </span>
+          {/* Same 6c-in/50c-out paper strategy, two rolling windows. */}
           <span className="bar-pnl-sim-row">
-            <span className="bar-pnl-sim-group">
+            <span className="bar-pnl-sim-item">
+              <span className="bar-pnl-sim-label">1hr</span>
               <span
-                className={`bar-pnl-sim ${pnlClass(simDollars)} ${simWinning ? "flash" : ""}`}
-                title={`Paper trade sim: ${simWins}W / ${simLosses}L — $1 in at 6c, out at 95c`}
+                className={`bar-pnl-sim-value ${pnlClass(sim1hDollars)} ${sim1hWinning ? "flash" : ""}`}
+                title={`Paper trade sim: ${sim1hWins}W / ${sim1hLosses}L — $1 in at 6c, out at 50c, last 1hr`}
               >
-                {formatPnl(simDollars)}
-              </span>
-              <span
-                className={`bar-pnl-sim-hour ${pnlClass(simLastHourDollars)}`}
-                title="Paper trade sim, last hour only"
-              >
-                {formatPnl(simLastHourDollars)}
+                {formatPnl(sim1hDollars)}
               </span>
             </span>
-            <span
-              className={`bar-pnl-sim40 ${pnlClass(sim40Dollars)} ${sim40Winning ? "flash" : ""}`}
-              title={`Paper trade sim: ${sim40Wins}W / ${sim40Losses}L — $1 in at 6c, out at 40c, last 30m`}
-            >
-              {formatPnl(sim40Dollars)}
+            <span className="bar-pnl-sim-item">
+              <span className="bar-pnl-sim-label">30m</span>
+              <span
+                className={`bar-pnl-sim-value ${pnlClass(sim30mDollars)} ${sim30mWinning ? "flash" : ""}`}
+                title={`Paper trade sim: ${sim30mWins}W / ${sim30mLosses}L — $1 in at 6c, out at 50c, last 30m`}
+              >
+                {formatPnl(sim30mDollars)}
+              </span>
             </span>
           </span>
         </div>

@@ -4,10 +4,14 @@
   gap: 7px;
   background: #101317;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 13px;
+  border-radius: 3px;
   padding: 15px 12px;
   box-sizing: border-box;
   cursor: pointer;
+  /* Belt-and-suspenders clip — nothing absolutely-positioned inside (chart
+     dot/label/tooltip) should ever visually escape the card's rounded
+     corners, even if its own position math runs a little wide. */
+  overflow: hidden;
 }
 
 .market-bar.disabled {
@@ -22,6 +26,34 @@
 @media (min-width: 900px) {
   .market-bar {
     height: 100%;
+  }
+}
+
+/* Mobile only: a slightly bigger tap target and easier-to-read row, paired
+   with market-grid's tighter gap (see App.css) so the list fills the
+   screen more evenly. Wider side padding (fills the row better) but
+   shallower top/bottom padding (doesn't need as much once the chart below
+   is doing most of the vertical filling). */
+@media (max-width: 899px) {
+  .market-bar {
+    padding: 12px 16px;
+    /* Shares out whatever's left of the screen below the header (see
+       market-grid in App.css) instead of sitting at natural content
+       height with dead space below the last card. A collapsed row's
+       identity line anchors to the top and its footer to the bottom of
+       its now-taller share, instead of both just sitting stacked at top
+       with empty room underneath. */
+    flex: 1;
+    justify-content: space-between;
+  }
+
+  .market-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .market-symbol {
+    font-size: 15px;
   }
 }
 
@@ -68,47 +100,56 @@
 .market-icon {
   width: 28px;
   height: 28px;
-  border-radius: 7px;
+  border-radius: 3px;
   flex: 0 0 auto;
   object-fit: cover;
+}
+
+/* Symbol name and its YES/NO prices stacked in one left-aligned column,
+   next to the icon — prices used to sit inline to the name's right, but
+   stacking them frees that space and keeps everything anchored left. */
+.bar-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 0 auto;
 }
 
 .market-symbol {
   font-size: 13px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.92);
-  flex: 0 0 auto;
-  width: 56px;
 }
 
 .bar-yesno {
   display: flex;
-  gap: 6px;
-  flex: 0 0 auto;
+  align-items: center;
+  gap: 1px;
 }
 
-.bar-yesno-stat {
-  display: flex;
-  align-items: baseline;
-  gap: 3px;
-  font-size: 13px;
+/* No YES/NO text labels — the slash between the two prices already reads
+   as which is which once you know the pattern. Muted colors (matching the
+   sim figures' quiet palette below), not the brighter neon green/red used
+   for real P&L, since this is just a live readout, not a result. */
+.bar-yesno-price {
+  font-size: 15px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
-.bar-yesno-stat.yes {
-  color: #2fd996;
+.bar-yesno-price.yes {
+  color: #7fd4c9;
 }
 
-.bar-yesno-stat.no {
-  color: #f0506e;
+.bar-yesno-price.no {
+  color: #c97f8f;
 }
 
-.bar-yesno-label {
-  font-size: 8px;
+.bar-yesno-slash {
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  opacity: 0.7;
+  color: rgba(255, 255, 255, 0.25);
 }
 
 .bar-pnl {
@@ -144,53 +185,36 @@
   color: rgba(255, 255, 255, 0.4);
 }
 
-/* Paper-trading simulation figure — visually quiet (small, low default
-   opacity) so it reads as a secondary/theoretical number, never mistaken
-   for real P&L. */
-.bar-pnl-sim {
-  font-size: 14px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.4);
-  opacity: 0.75;
-  transition: opacity 0.15s ease;
-}
-
-.bar-pnl-sim.positive {
-  color: #7fd4c9;
-}
-
-.bar-pnl-sim.negative {
-  color: #c97f8f;
-}
-
-.bar-pnl-sim.flash {
-  opacity: 1;
-  color: #ffc828;
-  animation: sim-win-pulse 1.4s ease-out;
-}
-
-/* Wraps both paper-sim strategy clusters (95c-exit and 40c-exit) so they
-   sit together on the right of the footer, separated by a divider. */
+/* Holds the two paper-sim figures (1hr, 30m), each one divided from its
+   neighbor. */
 .bar-pnl-sim-row {
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
 
-.bar-pnl-sim-group {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  padding-right: 8px;
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
+.bar-pnl-sim-row > *:not(:first-child) {
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* Faster-cycling 6c-in/40c-out variant — only a rolling last-30-min figure
-   (no session total), so it gets the same visual weight as the primary
-   bar-pnl-sim figure rather than the quieter last-hour sub-stat next to it. */
-.bar-pnl-sim40 {
-  font-size: 14px;
+.bar-pnl-sim-item {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.bar-pnl-sim-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* Paper-trading simulation figure — visually quiet (low default opacity)
+   so it reads as a secondary/theoretical number, never mistaken for real
+   P&L. Both windows share the same weight — neither is the "primary" one. */
+.bar-pnl-sim-value {
+  font-size: 13px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: rgba(255, 255, 255, 0.4);
@@ -198,38 +222,18 @@
   transition: opacity 0.15s ease;
 }
 
-.bar-pnl-sim40.positive {
+.bar-pnl-sim-value.positive {
   color: #7fd4c9;
 }
 
-.bar-pnl-sim40.negative {
+.bar-pnl-sim-value.negative {
   color: #c97f8f;
 }
 
-.bar-pnl-sim40.flash {
+.bar-pnl-sim-value.flash {
   opacity: 1;
   color: #ffc828;
   animation: sim-win-pulse 1.4s ease-out;
-}
-
-/* Rolling last-hour slice next to the session-long sim figure — quieter
-   still, since the session total is the primary read and this is just
-   context for how the last hour specifically has looked. */
-.bar-pnl-sim-hour {
-  font-size: 11px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.3);
-}
-
-.bar-pnl-sim-hour.positive {
-  color: #7fd4c9;
-  opacity: 0.75;
-}
-
-.bar-pnl-sim-hour.negative {
-  color: #c97f8f;
-  opacity: 0.75;
 }
 
 @keyframes sim-win-pulse {
@@ -264,7 +268,7 @@
   font-weight: 700;
   letter-spacing: 0.02em;
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 .order-badge.resting {
@@ -278,7 +282,6 @@
 }
 
 .bar-paused {
-  flex: 1 1 auto;
   color: rgba(255, 255, 255, 0.35);
   font-size: 12px;
   font-weight: 600;

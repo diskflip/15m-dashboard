@@ -1,8 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MarketCard } from "./components/MarketCard";
 import { Countdown } from "./components/Countdown";
 import { ActivityLog } from "./components/ActivityLog";
 import { useWallet } from "./hooks/useWallet";
+import { HoverSyncProvider } from "./hooks/useHoverSync";
 import { sendToBackend } from "./data/kalshi";
 import { MARKETS as ALL_MARKETS } from "../markets.config";
 import "./App.css";
@@ -30,8 +31,22 @@ function App() {
   const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(MARKETS.map((m) => [m.symbol, true]))
   );
+
   const [pnlBySymbol, setPnlBySymbol] = useState<Record<string, number>>({});
   const totalPnl = Object.values(pnlBySymbol).reduce((sum, v) => sum + v, 0);
+
+  // Tracked separately from the toggle itself since fullscreen can also be
+  // exited via Esc or the browser's own UI, not just this button.
+  const [isFullscreen, setIsFullscreen] = useState(() => document.fullscreenElement !== null);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement !== null);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen();
+  }, []);
 
   // Soonest close time across all enabled markets, so a paused or
   // weekend-closed market can't override the countdown with a stale value.
@@ -56,34 +71,49 @@ function App() {
   return (
     <div className="app">
       <div className="app-header">
-        <div className="header-spacer" aria-hidden="true" />
+        <div className="header-left">
+          <button
+            type="button"
+            className="icon-btn"
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            onClick={toggleFullscreen}
+          >
+            ⛶
+          </button>
+        </div>
         <Countdown closeTime={closeTime} />
         <div className="header-right">
           <span className={`pnl-value ${pnlClass(totalPnl)}`}>{formatPnl(totalPnl)}</span>
           <button
             type="button"
-            className="pnl-reset-btn"
-            title="Clear today's real P&L and start fresh from now"
-            aria-label="Clear today's P&L"
-            onClick={() => sendToBackend({ cmd: "resetPnl" })}
+            className="icon-btn"
+            title="Clear today's real and paper P&L and start fresh from now"
+            aria-label="Clear today's real and paper P&L"
+            onClick={() => {
+              sendToBackend({ cmd: "resetPnl" });
+              sendToBackend({ cmd: "resetSim" });
+            }}
           >
             ↺
           </button>
           <span className="wallet-balance">{formatBalance(balanceCents)}</span>
         </div>
       </div>
-      <div className="market-grid">
-        {MARKETS.map((m) => (
-          <MarketCard
-            key={m.symbol}
-            symbol={m.symbol}
-            enabled={enabled[m.symbol]}
-            onToggle={handleToggle}
-            onPnlChange={handlePnlChange}
-            onCloseTimeChange={handleCloseTimeChange}
-          />
-        ))}
-      </div>
+      <HoverSyncProvider>
+        <div className="market-grid">
+          {MARKETS.map((m) => (
+            <MarketCard
+              key={m.symbol}
+              symbol={m.symbol}
+              enabled={enabled[m.symbol]}
+              onToggle={handleToggle}
+              onPnlChange={handlePnlChange}
+              onCloseTimeChange={handleCloseTimeChange}
+            />
+          ))}
+        </div>
+      </HoverSyncProvider>
       <ActivityLog />
     </div>
   );
