@@ -1,6 +1,7 @@
 import { memo, useEffect, useState } from "react";
 import { useMarket } from "../hooks/useMarket";
 import { MarketChart } from "./MarketChart";
+import { playBuyInSound, playWinSound } from "../lib/sounds";
 import { formatPnl, pnlClass } from "../lib/format";
 import "./MarketCard.css";
 
@@ -93,6 +94,7 @@ export const MarketCard = memo(function MarketCard({
   useEffect(() => {
     if (winFlash === null) return;
     setWinning(true);
+    playWinSound();
     const t = setTimeout(() => setWinning(false), 2200);
     return () => clearTimeout(t);
   }, [winFlash]);
@@ -117,6 +119,7 @@ export const MarketCard = memo(function MarketCard({
   // too now that its chart has its own compact horizontal layout.
   useEffect(() => {
     if (buyInFlash === null) return;
+    playBuyInSound();
     setExpanded(true);
   }, [buyInFlash]);
 

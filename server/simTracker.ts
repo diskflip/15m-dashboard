@@ -72,9 +72,12 @@ export class SimTracker {
       resolved = true;
     }
 
+    // At exitCents <= 50, yesCents and noCents can both cross the exit
+    // threshold on the same tick (they sum to 100) — `!resolved` caps it
+    // to one win per tick instead of double-counting.
     if (!this.no.armed && noCents > 0 && noCents <= this.entryCents) {
       this.no = { armed: true, entryCents: noCents };
-    } else if (this.no.armed && noCents >= this.exitCents) {
+    } else if (!resolved && this.no.armed && noCents >= this.exitCents) {
       this.resolve("no", "win", this.no.entryCents!);
       resolved = true;
     }

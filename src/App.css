@@ -25,6 +25,7 @@
 .header-left {
   display: flex;
   align-items: center;
+  gap: 8px;
   justify-self: start;
 }
 
@@ -138,13 +139,9 @@
     min-height: 0;
   }
 
-  /* Fullscreen doesn't apply to a mobile browser tab the way it does on
-     desktop. visibility (not display: none) — the latter drops the item
-     from grid placement entirely, which shifted the countdown and reset
-     button left to fill the now-missing column instead of keeping them
-     centered against a still-reserved-but-empty first column. */
-  .header-left {
-    visibility: hidden;
+  /* Fullscreen doesn't apply on mobile — mute stays, hide just this one. */
+  .fullscreen-btn {
+    display: none;
   }
 
   /* Wallet balance and total P&L hidden on mobile for now — reset button

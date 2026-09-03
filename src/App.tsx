@@ -4,6 +4,7 @@ import { Countdown } from "./components/Countdown";
 import { ActivityLog } from "./components/ActivityLog";
 import { useWallet } from "./hooks/useWallet";
 import { HoverSyncProvider } from "./hooks/useHoverSync";
+import { isMuted, setMuted, playWinSound } from "./lib/sounds";
 import { sendToBackend } from "./data/kalshi";
 import { MARKETS as ALL_MARKETS } from "../markets.config";
 import "./App.css";
@@ -48,6 +49,17 @@ function App() {
     else document.documentElement.requestFullscreen();
   }, []);
 
+  const [muted, setMutedState] = useState(() => isMuted());
+  const toggleMuted = useCallback(() => {
+    setMutedState((prev) => {
+      const next = !prev;
+      setMuted(next);
+      // Confirmation beep so unmuting doubles as a quick speaker check.
+      if (!next) playWinSound();
+      return next;
+    });
+  }, []);
+
   // Soonest close time across all enabled markets, so a paused or
   // weekend-closed market can't override the countdown with a stale value.
   const [closeTimeBySymbol, setCloseTimeBySymbol] = useState<Record<string, number | null>>({});
@@ -74,12 +86,21 @@ function App() {
         <div className="header-left">
           <button
             type="button"
-            className="icon-btn"
+            className="icon-btn fullscreen-btn"
             title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             onClick={toggleFullscreen}
           >
             ⛶
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title={muted ? "Unmute win/buy-in sounds" : "Mute win/buy-in sounds"}
+            aria-label={muted ? "Unmute win/buy-in sounds" : "Mute win/buy-in sounds"}
+            onClick={toggleMuted}
+          >
+            {muted ? "🔇" : "🔊"}
           </button>
         </div>
         <Countdown closeTime={closeTime} />
